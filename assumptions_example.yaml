@@ -4,7 +4,10 @@ forecast_years: 10
 currency: USD
 terminal:
   growth_rate: 0.025
-  ronic: 0.10
+  ronic: null
+  enforce_ronic_equals_tocc: true
+overperformance:
+  years: 10
 tocc:
   risk_free_rate: null
   market_risk_premium: 0.045
@@ -17,9 +20,18 @@ tax:
   normalized_operating_tax_rate: 0.21
   cash_tax_rate: 0.17
   interest_limit_percentage: 0.30
+  initial_operating_nol: 0
+liquidity:
+  minimum_cash: 500
+dilution:
+  annual_sbc_rate: 0.00
 debt_policy:
   type: scheduled_amortization
 scenarios:
+  failure:
+    probability: 0.20
+    liquidation: true
+    liquidation_recovery_rate: 0.25
   downside:
     probability: 0.25
     revenue_growth_delta: -0.05
@@ -28,9 +40,9 @@ scenarios:
     terminal_growth_delta: -0.005
     tocc_delta: 0.01
   base:
-    probability: 0.50
+    probability: 0.40
   upside:
-    probability: 0.25
+    probability: 0.15
     revenue_growth_delta: 0.05
     ebit_margin_delta: 0.04
     capital_turnover_delta: 0.20

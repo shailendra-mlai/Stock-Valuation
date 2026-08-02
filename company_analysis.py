@@ -10,7 +10,7 @@ from statistics import median
 
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
-from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA, SECTOR_RONIC
+from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
 from valuation_system.models.assumptions import ValuationAssumptions
 from valuation_system.reporting.excel_export import export_excel
 from valuation_system.reporting.report_export import export_report
@@ -41,7 +41,7 @@ def assumptions_from_history(ticker: str, company, years: int) -> ValuationAssum
         ebit_margin_start=start_margin, ebit_margin_terminal=terminal_margin,
         risk_free_rate=RISK_FREE_RATE, market_risk_premium=MARKET_RISK_PREMIUM,
         selected_asset_beta=beta, terminal_growth_rate=terminal_growth,
-        terminal_ronic=max(SECTOR_RONIC.get(sector, 0.10), RISK_FREE_RATE + beta * MARKET_RISK_PREMIUM + 0.01),
+        terminal_ronic=None, enforce_terminal_ronic_to_tocc=True,
     )
 
 
@@ -49,6 +49,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Complete APV valuation for one nonfinancial public company")
     parser.add_argument("--ticker", required=True)
     parser.add_argument("--forecast-years", type=int, default=10)
+    parser.add_argument("--competitive-advantage-years", type=int, default=10)
+    parser.add_argument("--initial-nol", type=float)
+    parser.add_argument("--minimum-cash", type=float)
+    parser.add_argument("--annual-sbc-dilution-rate", type=float)
     parser.add_argument("--assumptions")
     parser.add_argument("--data-file")
     parser.add_argument("--output", default="./output")
@@ -61,6 +65,14 @@ def main() -> int:
         if args.assumptions else assumptions_from_history(args.ticker, company, args.forecast_years)
     )
     assumptions.forecast_years = args.forecast_years
+    assumptions.competitive_advantage_years = args.competitive_advantage_years
+    if args.initial_nol is not None:
+        assumptions.initial_operating_nol = args.initial_nol
+    if args.minimum_cash is not None:
+        assumptions.minimum_cash = args.minimum_cash
+    if args.annual_sbc_dilution_rate is not None:
+        assumptions.annual_sbc_dilution_rate = args.annual_sbc_dilution_rate
+    assumptions.validate()
     assumptions.allow_financial_company = args.allow_financial_company
     if args.market_price_override is not None:
         company.share_price = args.market_price_override

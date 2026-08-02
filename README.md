@@ -1,6 +1,6 @@
 # Public Company Valuation System
 
-This project implements an assumption-aware Adjusted Present Value (APV) system for nonfinancial public companies. It separates operating performance from financing, diagnoses ROIC drivers before forecasting, links continuing value to growth and RONIC, models interest deductibility, and completes an enterprise-to-equity bridge.
+This project implements a three-period, assumption-aware Adjusted Present Value (APV) system for nonfinancial public companies. It separates operating performance from financing, diagnoses ROIC drivers before forecasting, explicitly fades competitive advantage, locks terminal RONIC to unlevered TOCC, models NOL-constrained interest tax shields, tests liquidity, and completes a scenario-specific enterprise-to-equity bridge.
 
 ## Installation
 
@@ -33,7 +33,7 @@ This downloads the current constituent universe, retrieves available Nasdaq annu
 ### 2. Complete single-company analysis
 
 ```bash
-python company_analysis.py --ticker NVDA --forecast-years 10 --output ./output
+python company_analysis.py --ticker NVDA --forecast-years 10 --competitive-advantage-years 10 --output ./output
 ```
 
 The company script accepts any publicly traded nonfinancial-company ticker supported by the data provider. It creates:
@@ -42,7 +42,7 @@ The company script accepts any publicly traded nonfinancial-company ticker suppo
 - `<TICKER>_Valuation_Report_<YYYYMMDD>.md`
 - `<TICKER>_Valuation_<YYYYMMDD>.json`
 
-The Excel workbook follows the 23-tab Rivian-style architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, working capital, fixed assets, free cash flow, TOCC, debt, interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.
+The Excel workbook follows the expanded Rivian-style architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, competitive-advantage fade, working capital, fixed assets, free cash flow, TOCC, debt, liquidity, parallel NOL/interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.
 
 Use an assumptions override when needed:
 
@@ -100,34 +100,35 @@ The system does not silently fabricate a missing live value. Ambiguous accountin
 
 ## Assumptions-file format
 
-See `assumptions_example.yaml`. Core sections cover terminal growth and RONIC, TOCC inputs, tax conventions, debt policy, and coherent downside/base/upside scenarios. Scenario probabilities must total 100%.
+See `assumptions_example.yaml`. Core sections cover the explicit and over-performance periods, terminal growth, the terminal RONIC-to-TOCC lock, TOCC inputs, NOL and interest-deductibility conventions, liquidity, dilution, debt policy, and coherent failure/downside/base/upside scenarios. Scenario probabilities must total 100%.
 
 ## Key formulas
 
-- `NOPAT = Adjusted EBIT × (1 − normalized operating tax rate)` for positive EBIT; losses are left untaxed until NOL usage is explicitly modeled.
+- `Cash NOPAT = Adjusted EBIT − cash operating tax after NOL utilization`.
 - `UFCF = NOPAT + D&A − Capex − ΔOWC − other operating investment`.
 - `ROIC = NOPAT / average operating invested capital`.
 - `ROIC = NOPAT margin × capital turnover`.
 - `RONIC = ΔNOPAT / net new investment`; near-zero or negative investment returns `n.m.`.
-- `Continuing value = NOPAT(N+1) × (1 − g/RONIC) / (TOCC − g)`.
+- `Over-performance FCF = NOPAT − ΔNOPAT / fading RONIC`.
+- `Continuing value = NOPAT(N+1) × (1 − g/TOCC) / (TOCC − g)` because terminal RONIC equals TOCC.
 - `TOCC = risk-free rate + selected asset beta × market risk premium`.
 - `APV = operating enterprise value + PV of financing effects`.
 - `Equity value = APV EV − financing claims + excess cash + non-operating assets`.
 
 ## Workbook structure
 
-The generated workbook contains 23 tabs: Cover, Sources, Raw Financials, Reclassified Financials, Historical Analysis, ROIC Tree, Value Drivers, Forecast Assumptions, Forecast, Working Capital, Fixed Assets, Free Cash Flow, TOCC, Debt Schedule, Interest Tax Shield, Continuing Value, APV, Equity Bridge, Market Comparison, Scenarios, Sensitivities, Model Checks, and Dashboard.
+The generated workbook contains 25 tabs, adding dedicated `Over-Performance` and `Liquidity` schedules and expanding the tax-shield schedule to show parallel NOL cases.
 
 Blue font denotes user-editable inputs, black formulas, green cross-sheet links, gray historical periods, light blue forecast periods, yellow assumptions, and red/green status cells.
 
 ## Known limitations
 
 - The included RIVN dataset and market price are illustrative and are not current investment data.
-- The S&P 500 mode is a standardized screening model. Sector beta, terminal RONIC, margin convergence, and capital-turnover convergence must be replaced by issuer-specific evidence before investment use.
+- The S&P 500 mode is a standardized screening model. It applies the three-period structure and terminal RONIC discipline, but sector beta, margin convergence, capital-turnover convergence, and financing details must be replaced by issuer-specific evidence before investment use.
 - SEC XBRL tags vary materially by issuer. Production use requires issuer-specific mapping review rather than a universal zero-fill mapping.
 - Peer beta and debt beta rows are illustrative until refreshed from sourced market data.
-- The simplified U.S. interest limitation uses EBIT-like ATI and does not model every jurisdictional transition rule.
-- NOLs, convertibles, option tranches, pensions, minority interests, and tax attributes require security- or note-level inputs when material.
+- The simplified U.S. interest limitation uses EBIT-like ATI and does not model every jurisdictional transition rule; initial NOLs require a reviewed input.
+- Convertibles, option tranches, pensions, minority interests, liquidation recoveries, and future financing require security- or note-level inputs when material.
 - Financial institutions are rejected by default because they require a different valuation framework.
 
 ## Troubleshooting
@@ -154,7 +155,16 @@ python company_analysis.py \
   --output ./output
 ```
 
-Tests cover the core calculation engine, APV/equity bridge, Section 163(j)-style interest limitation, scenarios, model status, and an end-to-end mock-company valuation.
+Tests cover the core calculation engine, three-period APV/equity bridge, terminal RONIC lock, parallel NOL schedules, Section 163(j)-style interest limitation, scenario dilution/liquidation, model status, and an end-to-end mock-company valuation.
+
+## Version 2 methodology update
+
+- Separates the explicit forecast, competitive-advantage fade, and true steady state.
+- Includes both over-performance-period and terminal components in PV continuing value.
+- Calculates usable interest shields from cash taxes in parallel NOL schedules.
+- Adds explicit cash roll-forward and minimum-liquidity checks.
+- Supports scenario-specific borrowing, equity raises, new shares, and liquidation recovery.
+- Applies a limited-liability floor of zero to scenario equity value.
 
 ## Example run
 

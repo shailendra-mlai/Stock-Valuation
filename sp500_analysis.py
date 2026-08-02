@@ -1,4 +1,4 @@
-"""Run the standardized S&P 500 APV screen and export its summary workbook."""
+"""Run the standardized three-period S&P 500 APV screen and export its summary workbook."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from valuation_system.reporting.sp500_excel import export_sp500_excel
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Value eligible S&P 500 companies using a standardized APV screen")
+    parser = argparse.ArgumentParser(description="Value eligible S&P 500 companies using a standardized three-period APV screen")
     parser.add_argument("--output", default="./output")
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--constituents-source", default=CONSTITUENTS_URL)
