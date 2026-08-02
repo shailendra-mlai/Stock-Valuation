@@ -25,7 +25,7 @@ def _ramp(start: float, end: float, count: int) -> list[float]:
 def _historical(company: CompanyData, assumptions: ValuationAssumptions) -> tuple[list[dict], list[str]]:
     output: list[dict[str, Any]] = []
     diagnostics: list[str] = []
-    history = sorted(company.historical, key=lambda y: y.year)
+    history = sorted(company.historical, key=lambda y: y.year)[-5:]
     prior_owc = None
     prior_ic = None
     for item in history:
@@ -305,6 +305,9 @@ def _forecast(
         "equity_value": equity, "diluted_shares": shares,
         "intrinsic_value_per_share": per_share,
         "market_price": company.share_price,
+        "market_cap": company.market_cap if company.market_cap is not None else (
+            company.share_price * company.basic_shares if company.share_price is not None else None
+        ),
         "premium_discount": premium_discount(per_share, company.share_price),
         "continuing_value_share": pv_cv / apv_value if apv_value else None,
         "tocc": scenario_tocc, "terminal_growth": terminal_g,
@@ -324,6 +327,10 @@ def _forecast(
 def _checks(historical: list[dict], forecast: list[dict], overperformance: list[dict], summary: dict, assumptions: ValuationAssumptions, company: CompanyData) -> list[CheckResult]:
     checks: list[CheckResult] = []
     years = [r["year"] for r in historical]
+    checks.append(CheckResult(
+        "Data", "Five historical fiscal years", "PASS" if len(years) == 5 else "WARNING",
+        len(years), 5, notes="Uses the latest five comparable annual periods available from the selected source.",
+    ))
     checks.append(CheckResult("Data", "Historical periods sequential", "PASS" if years == list(range(min(years), max(years) + 1)) else "FAIL", years, "Sequential"))
     max_fcf_diff = max(abs(r["fcf"] - r["fcf_alt"]) for r in historical)
     checks.append(CheckResult("Operating", "Historical FCF reconciliation", "PASS" if max_fcf_diff < 1e-6 else "FAIL", max_fcf_diff, 0, max_fcf_diff, 1e-6))
