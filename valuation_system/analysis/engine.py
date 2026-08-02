@@ -293,6 +293,17 @@ def _forecast(
         op_value = liquidation_recovery_rate * final_row["invested_capital"]
     equity = max(0.0, equity)
     per_share = equity / shares if shares > 0 else 0
+    cash_path = [
+        {"year": latest.year, "ending_cash": latest.cash + latest.marketable_securities},
+        *forecast,
+        *overperformance,
+    ]
+    minimum_cash_balance = min(float(row["ending_cash"]) for row in cash_path)
+    liquidity_shortfall = max(0.0, assumptions.minimum_cash - minimum_cash_balance)
+    first_breach = next(
+        (int(row["year"]) for row in cash_path if float(row["ending_cash"]) < assumptions.minimum_cash),
+        None,
+    )
     summary = {
         "pv_explicit_fcf": pv_explicit, "pv_continuing_value": pv_cv,
         "pv_overperformance_fcf": pv_overperformance, "pv_terminal_value": pv_terminal,
@@ -317,8 +328,13 @@ def _forecast(
         "terminal_nopat_next": final_row["nopat"] * (1 + terminal_g),
         "terminal_fcf": final_row["nopat"] * (1 + terminal_g) * (1 - terminal_g / terminal_ronic),
         "continuing_value_at_terminal": cv,
-        "minimum_cash_balance": min([latest.cash + latest.marketable_securities] + [r["ending_cash"] for r in forecast + overperformance]),
-        "liquidity_shortfall": max(0.0, assumptions.minimum_cash - min([latest.cash + latest.marketable_securities] + [r["ending_cash"] for r in forecast + overperformance])),
+        "minimum_cash_balance": minimum_cash_balance,
+        "liquidity_shortfall": liquidity_shortfall,
+        "minimum_external_funding": liquidity_shortfall,
+        "first_liquidity_breach_year": first_breach,
+        "years_below_minimum_cash": sum(
+            float(row["ending_cash"]) < assumptions.minimum_cash for row in cash_path[1:]
+        ),
         "liquidation": liquidation,
     }
     return forecast, overperformance, summary, shield_rows
@@ -344,12 +360,33 @@ def _checks(historical: list[dict], forecast: list[dict], overperformance: list[
     if overperformance:
         checks.append(CheckResult("Continuing value", "Competitive-advantage fade reaches TOCC", "PASS" if abs(overperformance[-1]["ronic"] - summary["tocc"]) < 1e-9 else "FAIL", overperformance[-1]["ronic"], summary["tocc"], overperformance[-1]["ronic"] - summary["tocc"], 1e-9))
     checks.append(CheckResult("APV", "APV equals operating value plus financing effects", "PASS" if abs(summary["apv_enterprise_value"] - summary["operating_enterprise_value"] - summary["pv_financing_effects"]) < 1e-6 else "FAIL"))
-    bridge = summary["apv_enterprise_value"] - summary["gross_debt"] - summary["other_financing_claims"] + summary["excess_cash"]
-    checks.append(CheckResult("APV", "Equity bridge reconciles", "PASS" if abs(bridge - summary["equity_value"]) < 1e-6 else "FAIL", bridge, summary["equity_value"], bridge-summary["equity_value"], 1e-6))
+    raw_bridge = summary["apv_enterprise_value"] - summary["gross_debt"] - summary["other_financing_claims"] + summary["excess_cash"]
+    limited_liability_bridge = max(0.0, raw_bridge)
+    bridge_difference = limited_liability_bridge - summary["equity_value"]
+    checks.append(CheckResult(
+        "APV", "Equity bridge reconciles", "PASS" if abs(bridge_difference) < 1e-6 else "FAIL",
+        limited_liability_bridge, summary["equity_value"], bridge_difference, 1e-6,
+        notes=(
+            f"Unfloored equity was ${raw_bridge:,.1f}mm; limited liability floors common equity at zero."
+            if raw_bridge < 0 else "APV enterprise value less claims plus excess cash equals equity value."
+        ),
+    ))
     probability = sum(s.probability for s in assumptions.scenarios.values())
     checks.append(CheckResult("Scenario", "Scenario probabilities total 100%", "PASS" if abs(probability - 1) < 1e-9 else "FAIL", probability, 1))
-    liquidity_status = "PASS" if summary["liquidity_shortfall"] <= 0 else "FAIL"
-    checks.append(CheckResult("Liquidity", "Minimum cash maintained", liquidity_status, summary["minimum_cash_balance"], f">= {assumptions.minimum_cash:,.0f}", summary["liquidity_shortfall"], 0, "A failure identifies a financing need; it is not silently plugged."))
+    shortfall = float(summary["liquidity_shortfall"])
+    liquidity_status = "PASS" if shortfall <= assumptions.reconciliation_tolerance else "WARNING"
+    liquidity_notes = (
+        "Forecast cash remains above the minimum liquidity requirement."
+        if liquidity_status == "PASS" else
+        f"This is a financing-risk warning, not a model-integrity failure. The forecast requires at least "
+        f"${shortfall:,.1f}mm of external funding, with the first breach in "
+        f"{summary['first_liquidity_breach_year']}. Funding is disclosed rather than silently plugged."
+    )
+    checks.append(CheckResult(
+        "Liquidity", "Minimum cash / external funding requirement", liquidity_status,
+        summary["minimum_cash_balance"], f">= {assumptions.minimum_cash:,.0f}",
+        shortfall, assumptions.reconciliation_tolerance, liquidity_notes,
+    ))
     checks.append(CheckResult("Market", "Market price available", "PASS" if company.share_price and company.share_price > 0 else "WARNING", company.share_price, "> 0", notes="Provide an override when missing."))
     checks.append(CheckResult("Risk", "Continuing value concentration", "WARNING" if (summary["continuing_value_share"] or 0) > 0.8 else "PASS", summary["continuing_value_share"], "<= 80%", notes="High terminal-value dependence increases model risk."))
     if company.is_financial and not assumptions.allow_financial_company:
