@@ -196,6 +196,13 @@ def _sidebar_inputs() -> tuple[bool, dict]:
 def _render_summary(result) -> None:
     render_metric_cards(result)
     st.caption("Positive premium/(discount) means intrinsic value is above market price; negative means it is below market price. This is not a buy/sell recommendation.")
+    if result.summary.get("liquidity_shortfall", 0) > 0:
+        st.warning(
+            f"Financing required: the forecast needs at least "
+            f"{format_large_currency(result.summary['minimum_external_funding'])} of external funding "
+            f"to maintain minimum cash, beginning in {result.summary['first_liquidity_breach_year']}. "
+            "This is treated as a risk warning, not a model calculation failure."
+        )
     render_overall_status(result.summary["overall_model_status"])
     left, right = st.columns([1, 1.25])
     with left:
