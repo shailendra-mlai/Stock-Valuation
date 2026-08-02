@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from valuation_system.analysis.calculations import (
-    apv, asset_beta, cash_tax_with_nol, continuing_value, deductible_interest, diluted_shares,
+    apv, cash_tax_with_nol, continuing_value, deductible_interest, diluted_shares,
     economic_profit, equity_value, nopat, premium_discount, pv, roic, ronic,
     scenario_weighted_value, unlevered_fcf,
 )
@@ -363,20 +363,9 @@ def run_valuation(company: CompanyData, assumptions: ValuationAssumptions) -> Va
         raise ValueError("Financial institution detected; explicit override and a sector-specific framework are required.")
     historical, diagnostics = _historical(company, assumptions)
     forecast, overperformance, summary, shields = _forecast(company, assumptions)
-    peer_specs = [
-        ("Peer A", 1.55, 80000, 12000, 0.10),
-        ("Peer B", 1.20, 45000, 30000, 0.15),
-        ("Peer C", 1.05, 35000, 25000, 0.12),
-        ("Peer D", 1.80, 9000, 2500, 0.20),
-    ]
-    peer_names = (assumptions.peer_tickers + ["Peer A", "Peer B", "Peer C", "Peer D"])[:4]
     peers = [
-        {"peer": peer_names[index], "equity_beta": eb, "equity": eq, "debt": debt, "debt_beta": db,
-         "tax_rate": assumptions.tax_rate, "raw_asset_beta": asset_beta(eb, eq, db, debt),
-         "adjusted_asset_beta": 0.67 * asset_beta(eb, eq, db, debt) + 0.33,
-         "asset_beta": asset_beta(eb, eq, db, debt),
-         "weight": 0.25, "source": "Illustrative peer assumptions; replace with sourced market data"}
-        for index, (_, eb, eq, debt, db) in enumerate(peer_specs)
+        {**row, "tax_rate": assumptions.tax_rate, "asset_beta": row["raw_asset_beta"]}
+        for row in company.comparables
     ]
     scenarios = []
     for name, scenario in assumptions.scenarios.items():
