@@ -335,13 +335,14 @@ def valuation_bridge_rows(result: Any) -> list[dict[str, Any]]:
 
 def render_metric_cards(result: Any) -> None:
     s = result.summary
-    columns = st.columns(6)
-    columns[0].metric("Intrinsic Value / Share", format_currency(s["intrinsic_value_per_share"]))
-    columns[1].metric("Market Price", format_currency(s["market_price"]))
-    columns[2].metric("Market Cap", format_large_currency(s.get("market_cap")))
-    columns[3].metric("Premium / Discount", format_percentage(s["premium_discount"]), delta=format_percentage(s["premium_discount"]))
-    columns[4].metric("APV Enterprise Value", format_large_currency(s["apv_enterprise_value"]))
-    columns[5].metric("Equity Value", format_large_currency(s["equity_value"]))
+    top = st.columns(3)
+    top[0].metric("Intrinsic Value / Share", format_currency(s["intrinsic_value_per_share"]))
+    top[1].metric("Market Price", format_currency(s["market_price"]))
+    top[2].metric("Market Capitalization", format_large_currency(s.get("market_cap")))
+    bottom = st.columns(3)
+    bottom[0].metric("Premium / Discount", format_percentage(s["premium_discount"]), delta=format_percentage(s["premium_discount"]))
+    bottom[1].metric("APV Enterprise Value", format_large_currency(s["apv_enterprise_value"]))
+    bottom[2].metric("Equity Value", format_large_currency(s["equity_value"]))
 
 
 def render_overall_status(status: str) -> None:
