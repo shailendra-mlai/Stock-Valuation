@@ -39,6 +39,7 @@ class ValuationAssumptions:
     risk_free_rate: float = 0.0425
     market_risk_premium: float = 0.045
     selected_asset_beta: float = 1.25
+    peer_tickers: list[str] = field(default_factory=lambda: ["TSLA", "GM", "F", "LCID"])
     terminal_growth_rate: float = 0.025
     terminal_ronic: float | None = None
     enforce_terminal_ronic_to_tocc: bool = True
@@ -119,6 +120,7 @@ class ValuationAssumptions:
             "enforce_terminal_ronic_to_tocc": terminal.get("enforce_ronic_equals_tocc", True),
             "risk_free_rate": tocc.get("risk_free_rate") or cls.risk_free_rate,
             "market_risk_premium": tocc.get("market_risk_premium", cls.market_risk_premium),
+            "peer_tickers": tocc.get("peer_tickers", ["TSLA", "GM", "F", "LCID"]),
             "tax_rate": tax.get("normalized_operating_tax_rate", cls.tax_rate),
             "cash_tax_rate": tax.get("cash_tax_rate", cls.cash_tax_rate),
             "interest_limit_percentage": tax.get("interest_limit_percentage", cls.interest_limit_percentage),
