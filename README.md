@@ -2,6 +2,8 @@
 
 This project implements a three-period, assumption-aware Adjusted Present Value (APV) system for nonfinancial public companies. It separates operating performance from financing, diagnoses ROIC drivers before forecasting, explicitly fades competitive advantage, locks terminal RONIC to unlevered TOCC, models NOL-constrained interest tax shields, tests liquidity, and completes a scenario-specific enterprise-to-equity bridge.
 
+> **Disclaimer:** This project is based on Wharton course work and is provided solely for educational and analytical purposes. It is not financial advice, investment advice, or a recommendation to buy, sell, or trade any stock or other security. Users should conduct their own research and consult a qualified financial professional before making investment decisions.
+
 ## Installation
 
 Python 3.12+ is recommended.
