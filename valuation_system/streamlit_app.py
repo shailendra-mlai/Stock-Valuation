@@ -119,7 +119,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         except Exception as exc:
             st.sidebar.error(f"Could not read assumptions: {exc}")
 
-    ticker = st.sidebar.text_input("Ticker", value=str(_default(uploaded_defaults, "ticker", "RIVN"))).upper().strip()
+    ticker = st.sidebar.text_input("Ticker", value=str(_default(uploaded_defaults, "ticker", "DEMO"))).upper().strip()
     valuation_default = pd.to_datetime(_default(uploaded_defaults, "valuation_date", date.today())).date()
     valuation_date = st.sidebar.date_input("Valuation Date", value=valuation_default)
     forecast_years = st.sidebar.slider("Explicit Forecast Period", 5, 15, int(_default(uploaded_defaults, "forecast_years", 10)))
@@ -474,7 +474,7 @@ def main() -> None:
 
     result = st.session_state.valuation_results
     if result is None:
-        st.info("Enter a ticker and assumptions in the sidebar, then select **Run Valuation**. The included RIVN sample works without a network connection.")
+        st.info("Enter a ticker and assumptions in the sidebar, then select **Run Valuation**. The included synthetic DEMO company works without a network connection.")
         return
 
     st.caption(f"Last run: {st.session_state.last_run_timestamp} | Ticker: {result.ticker} | Values in {result.company['currency']} millions unless noted")
