@@ -57,6 +57,7 @@ class CompanyData:
     share_price: float | None
     diluted_shares: float
     basic_shares: float
+    market_cap: float | None = None
     restricted_stock: float = 0.0
     rsus: float = 0.0
     options: float = 0.0
