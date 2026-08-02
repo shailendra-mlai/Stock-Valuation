@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 import csv
-from datetime import date
+from datetime import date, datetime
+from functools import lru_cache
 import logging
+import os
 from pathlib import Path
+import time
+from typing import Any
+
+import requests
 
 from valuation_system.config import DEFAULT_SAMPLE_DATA
 from valuation_system.models.company import CompanyData, HistoricalYear, ProvenanceRecord
 from valuation_system.data.sp500_batch import NASDAQ_FINANCIALS, NASDAQ_SUMMARY, _fetch_json, _num, _table, _latest, _series
 
 logger = logging.getLogger(__name__)
+
+
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "").strip()
+SEC_ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
 
 
 NUMERIC_FIELDS = {
@@ -20,7 +32,10 @@ NUMERIC_FIELDS = {
 def _load_sample(ticker: str, path: Path) -> CompanyData:
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    selected = [r for r in rows if r["ticker"].upper() == ticker.upper()]
+    selected = sorted(
+        [r for r in rows if r["ticker"].upper() == ticker.upper()],
+        key=lambda row: int(row["year"]),
+    )
     if not selected:
         raise ValueError(f"No offline sample data is available for {ticker}")
     historical = []
@@ -28,6 +43,7 @@ def _load_sample(ticker: str, path: Path) -> CompanyData:
         values = {"year": int(row["year"])}
         values.update({name: float(row.get(name) or 0) for name in NUMERIC_FIELDS})
         historical.append(HistoricalYear(**values))
+    historical = sorted(historical, key=lambda item: item.year)[-5:]
     last = selected[-1]
     provenance = [
         ProvenanceRecord(
@@ -60,12 +76,229 @@ def _load_sample(ticker: str, path: Path) -> CompanyData:
         share_price=float(last["share_price"]),
         diluted_shares=float(last["diluted_shares"]),
         basic_shares=float(last["basic_shares"]),
+        market_cap=float(last["share_price"]) * float(last["basic_shares"]),
         rsus=float(last.get("rsus") or 0),
         options=float(last.get("options") or 0),
         option_strike=float(last.get("option_strike") or 0),
         warrants=float(last.get("warrants") or 0),
         convertibles=float(last.get("convertibles") or 0),
         provenance=provenance,
+    )
+
+
+def _sec_get_json(url: str, attempts: int = 4, user_agent: str | None = None) -> dict[str, Any]:
+    declared_agent = (user_agent or SEC_USER_AGENT).strip()
+    if "@" not in declared_agent:
+        raise RuntimeError("SEC requires an identifying user agent with a contact email. Set SEC_USER_AGENT or enter an SEC contact email in the app.")
+    headers = {
+        "User-Agent": declared_agent,
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "application/json",
+    }
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(0.5 * (2 ** attempt))
+    raise RuntimeError(f"SEC request failed after {attempts} attempts: {last_error}")
+
+
+@lru_cache(maxsize=16)
+def _sec_ticker_map(user_agent: str) -> dict[str, int]:
+    payload = _sec_get_json(SEC_TICKERS_URL, user_agent=user_agent)
+    return {
+        str(row["ticker"]).upper(): int(row["cik_str"])
+        for row in payload.values()
+        if row.get("ticker") and row.get("cik_str") is not None
+    }
+
+
+def _annual_concept(
+    payload: dict[str, Any],
+    tags: tuple[str, ...],
+    *,
+    unit: str = "USD",
+    instant: bool = False,
+    taxonomies: tuple[str, ...] = ("us-gaap", "ifrs-full", "dei"),
+) -> dict[int, float]:
+    selected: dict[int, tuple[str, float]] = {}
+    facts = payload.get("facts") or {}
+    for taxonomy in taxonomies:
+        taxonomy_facts = facts.get(taxonomy) or {}
+        for tag in tags:
+            concept = taxonomy_facts.get(tag) or {}
+            units = concept.get("units") or {}
+            entries = units.get(unit) or []
+            tag_selected: dict[int, tuple[str, float]] = {}
+            for entry in entries:
+                if entry.get("form") not in SEC_ANNUAL_FORMS or entry.get("val") is None or not entry.get("end"):
+                    continue
+                if not instant:
+                    if not entry.get("start"):
+                        continue
+                    try:
+                        duration = (datetime.fromisoformat(entry["end"]) - datetime.fromisoformat(entry["start"])).days
+                    except ValueError:
+                        continue
+                    if not 300 <= duration <= 400:
+                        continue
+                try:
+                    year = datetime.fromisoformat(entry["end"]).year
+                    value = float(entry["val"])
+                except (TypeError, ValueError):
+                    continue
+                filed = str(entry.get("filed") or "")
+                if year not in tag_selected or filed > tag_selected[year][0]:
+                    tag_selected[year] = (filed, value)
+            for year, candidate in tag_selected.items():
+                selected.setdefault(year, candidate)
+        if selected:
+            break
+    return {year: value for year, (_, value) in selected.items()}
+
+
+def _series_value(series: dict[int, float], year: int, scale: float = 1_000_000.0) -> float:
+    return float(series.get(year, 0.0)) / scale
+
+
+def _sec_market_data(symbol: str) -> tuple[float | None, float | None]:
+    try:
+        summary_payload = _fetch_json(NASDAQ_SUMMARY.format(ticker=symbol))["data"]
+        summary = (summary_payload or {}).get("summaryData") or {}
+        price = _num((summary.get("PreviousClose") or {}).get("value"))
+        market_cap = _num((summary.get("MarketCap") or {}).get("value"), 1_000_000.0)
+        return price, market_cap
+    except Exception as exc:
+        logger.warning("Market-data retrieval failed after SEC download: %s", exc)
+        return None, None
+
+
+def load_sec_company_data(ticker: str, user_agent: str | None = None) -> CompanyData:
+    """Download and normalize the latest five annual periods from SEC Company Facts."""
+    symbol = ticker.upper().strip()
+    declared_agent = (user_agent or SEC_USER_AGENT).strip()
+    cik = _sec_ticker_map(declared_agent).get(symbol)
+    if cik is None:
+        raise RuntimeError(f"SEC ticker-to-CIK mapping is unavailable for {symbol}")
+    source_url = SEC_COMPANY_FACTS_URL.format(cik=cik)
+    payload = _sec_get_json(source_url, user_agent=declared_agent)
+
+    revenue = _annual_concept(payload, ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "Revenue"))
+    ebit = _annual_concept(payload, ("OperatingIncomeLoss", "OperatingProfitLoss"))
+    years = sorted(set(revenue) & set(ebit))[-5:]
+    if len(years) < 3:
+        raise RuntimeError("SEC Company Facts returned fewer than three comparable annual periods; upload reviewed financial data")
+
+    duration_tags = {
+        "cogs": ("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfSales"),
+        "sga": ("SellingGeneralAndAdministrativeExpense", "SellingAndMarketingExpense"),
+        "rd": ("ResearchAndDevelopmentExpense",),
+        "da": ("DepreciationDepletionAndAmortization", "Depreciation", "DepreciationAndAmortization"),
+        "taxes": ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations"),
+        "capex": ("PaymentsToAcquirePropertyPlantAndEquipment", "PurchaseOfPropertyPlantAndEquipment"),
+        "stock_comp": ("ShareBasedCompensation", "ShareBasedPayment"),
+    }
+    instant_tags = {
+        "cash": ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents"),
+        "marketable_securities": ("ShortTermInvestments", "MarketableSecuritiesCurrent"),
+        "receivables": ("AccountsReceivableNetCurrent", "TradeAndOtherCurrentReceivables"),
+        "inventory": ("InventoryNet", "Inventories"),
+        "other_current_operating_assets": ("OtherCurrentAssets", "OtherCurrentNonfinancialAssets"),
+        "net_ppe": ("PropertyPlantAndEquipmentNet", "PropertyPlantAndEquipment"),
+        "operating_lease_assets": ("OperatingLeaseRightOfUseAsset", "RightOfUseAsset"),
+        "accounts_payable": ("AccountsPayableCurrent", "TradeAndOtherCurrentPayables"),
+        "accrued_operating_liabilities": ("AccruedLiabilitiesCurrent", "OtherCurrentLiabilities"),
+        "deferred_revenue": ("ContractWithCustomerLiabilityCurrent", "ContractLiabilitiesCurrent"),
+        "other_operating_liabilities": ("OtherLiabilitiesNoncurrent", "OtherNoncurrentLiabilities"),
+        "debt_current": ("LongTermDebtCurrent", "ShortTermBorrowings"),
+        "debt_noncurrent": ("LongTermDebtNoncurrent", "LongTermDebt"),
+        "lease_current": ("OperatingLeaseLiabilityCurrent",),
+        "lease_noncurrent": ("OperatingLeaseLiabilityNoncurrent", "LeaseLiabilitiesNoncurrent"),
+        "equity": ("StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest", "Equity"),
+        "goodwill": ("Goodwill",),
+        "intangibles": ("FiniteLivedIntangibleAssetsNet", "IntangibleAssetsNetExcludingGoodwill", "IntangibleAssetsOtherThanGoodwill"),
+    }
+    duration = {name: _annual_concept(payload, tags) for name, tags in duration_tags.items()}
+    instant = {name: _annual_concept(payload, tags, instant=True) for name, tags in instant_tags.items()}
+
+    historical: list[HistoricalYear] = []
+    for year in years:
+        historical.append(HistoricalYear(
+            year=year,
+            revenue=_series_value(revenue, year),
+            cogs=abs(_series_value(duration["cogs"], year)),
+            sga=abs(_series_value(duration["sga"], year)),
+            rd=abs(_series_value(duration["rd"], year)),
+            da=abs(_series_value(duration["da"], year)),
+            ebit=_series_value(ebit, year),
+            taxes=_series_value(duration["taxes"], year),
+            cash=_series_value(instant["cash"], year),
+            marketable_securities=_series_value(instant["marketable_securities"], year),
+            receivables=_series_value(instant["receivables"], year),
+            inventory=_series_value(instant["inventory"], year),
+            other_current_operating_assets=_series_value(instant["other_current_operating_assets"], year),
+            net_ppe=_series_value(instant["net_ppe"], year),
+            operating_lease_assets=_series_value(instant["operating_lease_assets"], year),
+            other_operating_assets=_series_value(instant["goodwill"], year) + _series_value(instant["intangibles"], year),
+            accounts_payable=_series_value(instant["accounts_payable"], year),
+            accrued_operating_liabilities=_series_value(instant["accrued_operating_liabilities"], year),
+            deferred_revenue=_series_value(instant["deferred_revenue"], year),
+            other_operating_liabilities=_series_value(instant["other_operating_liabilities"], year),
+            debt=_series_value(instant["debt_current"], year) + _series_value(instant["debt_noncurrent"], year),
+            lease_liabilities=_series_value(instant["lease_current"], year) + _series_value(instant["lease_noncurrent"], year),
+            equity=_series_value(instant["equity"], year),
+            capex=abs(_series_value(duration["capex"], year)),
+            stock_comp=abs(_series_value(duration["stock_comp"], year)),
+        ))
+
+    common_shares = _annual_concept(payload, ("EntityCommonStockSharesOutstanding",), unit="shares", instant=True, taxonomies=("dei", "us-gaap"))
+    diluted = _annual_concept(payload, ("WeightedAverageNumberOfDilutedSharesOutstanding",), unit="shares")
+    latest_year = years[-1]
+    basic_shares = _series_value(common_shares, max(common_shares)) if common_shares else 0.0
+    diluted_shares = _series_value(diluted, latest_year)
+    if diluted_shares <= 0 and diluted:
+        diluted_shares = _series_value(diluted, max(diluted))
+    diluted_shares = diluted_shares or basic_shares
+    price, market_cap = _sec_market_data(symbol)
+    if basic_shares <= 0 and price and market_cap:
+        basic_shares = market_cap / price
+    if diluted_shares <= 0:
+        diluted_shares = basic_shares
+    if basic_shares <= 0:
+        raise RuntimeError("SEC share-count facts are missing; upload reviewed data or provide a supported ticker")
+    if market_cap is None and price is not None:
+        market_cap = price * basic_shares
+
+    period_note = "Latest five comparable annual periods." if len(years) == 5 else f"Only {len(years)} comparable annual periods were available."
+    provenance = [
+        ProvenanceRecord(
+            variable="Historical financial statements", value=f"{len(years)} fiscal years",
+            source=source_url, source_date=str(years[-1]), retrieval_method="SEC Company Facts API",
+            confidence="medium", notes=period_note + " Standard-taxonomy mappings require filing review when material.",
+        ),
+        ProvenanceRecord(
+            variable="Share counts", value=basic_shares, source=source_url,
+            source_date=str(years[-1]), retrieval_method="SEC Company Facts API",
+            original_unit="shares", normalized_unit="millions of shares", confidence="medium",
+        ),
+        ProvenanceRecord(
+            variable="Market price and capitalization", value=market_cap if market_cap is not None else "n.m.",
+            source=NASDAQ_SUMMARY.format(ticker=symbol), source_date=str(date.today()),
+            retrieval_method="Nasdaq public JSON API after SEC financial download",
+            original_unit="USD", normalized_unit="USD millions", confidence="medium",
+            notes="Previous-close market data; financial statements are sourced from SEC Company Facts.",
+        ),
+    ]
+    return CompanyData(
+        ticker=symbol, name=str(payload.get("entityName") or f"{symbol} public company"),
+        sector=str(payload.get("sicDescription") or "Unknown"), currency="USD",
+        historical=historical, share_price=price, diluted_shares=diluted_shares,
+        basic_shares=basic_shares, market_cap=market_cap, provenance=provenance,
     )
 
 
@@ -177,8 +410,9 @@ def load_nasdaq_company_data(ticker: str) -> CompanyData:
         ),
     ]
     return CompanyData(
-        ticker=symbol, name=name, sector=sector, currency="USD", historical=sorted(historical, key=lambda x: x.year),
-        share_price=price, diluted_shares=shares, basic_shares=shares, provenance=provenance,
+        ticker=symbol, name=name, sector=sector, currency="USD", historical=sorted(historical, key=lambda x: x.year)[-5:],
+        share_price=price, diluted_shares=shares, basic_shares=shares,
+        market_cap=market_cap, provenance=provenance,
     )
 
 
@@ -186,11 +420,13 @@ def load_company_data(
     ticker: str,
     data_file: str | Path | None = None,
     live: bool = False,
+    sec_user_agent: str | None = None,
 ) -> CompanyData:
+    if data_file is not None:
+        return _load_sample(ticker, Path(data_file))
     if live:
         try:
-            return load_nasdaq_company_data(ticker)
+            return load_sec_company_data(ticker, sec_user_agent)
         except Exception as exc:
-            logger.warning("Live retrieval unavailable or unreliable: %s", exc)
-    path = Path(data_file) if data_file else DEFAULT_SAMPLE_DATA
-    return _load_sample(ticker, path)
+            logger.warning("SEC retrieval unavailable or unreliable: %s", exc)
+    return _load_sample(ticker, DEFAULT_SAMPLE_DATA)
