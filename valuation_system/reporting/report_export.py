@@ -57,7 +57,7 @@ ROIC is calculated as NOPAT divided by average operating invested capital and re
 
 ## 6. Sustainable competitive advantage
 
-The model does not assume that historical returns persist. Durable terminal returns require evidence of customer demand, pricing power, scale economies, technology advantage, working-capital structure, or superior capital efficiency.
+The model does not assume that historical returns persist forever. After the explicit forecast, RONIC fades over {len(result.overperformance)} years to TOCC. True steady state therefore earns no excess return on new investment.
 
 ## 7. Forecast story and value drivers
 
@@ -69,7 +69,7 @@ The forecast spans {len(result.forecast)} years. Free cash flow equals NOPAT plu
 
 ## 9. Continuing value
 
-Continuing value uses normalized NOPAT, terminal growth of {_pct(s['terminal_growth'])}, terminal RONIC of {_pct(s['terminal_ronic'])}, and TOCC of {_pct(s['tocc'])}. The implied reinvestment rate is {_pct(s['terminal_reinvestment_rate'])}; continuing value is {_pct(s['continuing_value_share'])} of APV enterprise value.
+Continuing value includes {_money(s['pv_overperformance_fcf'])} million from the competitive-advantage fade and {_money(s['pv_terminal_value'])} million from true steady state. Terminal growth is {_pct(s['terminal_growth'])}; terminal RONIC is locked to TOCC at {_pct(s['tocc'])}. The implied reinvestment rate is {_pct(s['terminal_reinvestment_rate'])}.
 
 ## 10. TOCC estimation
 
@@ -77,11 +77,13 @@ TOCC is {_pct(s['tocc'])}, using CAPM with an operating asset beta rather than t
 
 ## 11. Financing policy and tax shields
 
-Interest tax shields are modeled separately with an EBIT-like ATI convention and a 30% deductibility limit. Carryforwards are rolled explicitly. No continuing tax shield is capitalized in the sample because the long-run debt and deductibility hypothesis is not sufficiently supported.
+Interest tax shields are modeled separately with an EBIT-like ATI convention and a 30% deductibility limit. Interest carryforwards and parallel operating NOL schedules—with and without interest—are rolled explicitly. The usable shield is the incremental cash-tax reduction; continuing shields are capitalized only when debt, taxable income, and NOL utilization support them.
 
 ## 12. APV valuation
 
 - PV of explicit unlevered FCF: {_money(s['pv_explicit_fcf'])} million
+- PV of over-performance FCF: {_money(s['pv_overperformance_fcf'])} million
+- PV of terminal value: {_money(s['pv_terminal_value'])} million
 - PV of continuing value: {_money(s['pv_continuing_value'])} million
 - Operating enterprise value: {_money(s['operating_enterprise_value'])} million
 - PV of financing effects: {_money(s['pv_financing_effects'])} million
@@ -99,13 +101,13 @@ Illustrative market price: {_money(s['market_price'])}. Intrinsic value differs 
 
 {scenario_lines}
 
-The workbook includes a formula-driven TOCC-versus-terminal-growth sensitivity grid.
+The scenarios incorporate going-concern or liquidation treatment, financing needs, dilution, and a limited-liability equity floor. The workbook also includes a formula-driven TOCC-versus-terminal-growth sensitivity grid.
 
 ## 16. Principal risks
 
 - Forecast revenue and margin convergence may not occur.
 - Capital requirements may exceed the modeled PP&E and working-capital needs.
-- Terminal RONIC may not remain above TOCC.
+- The modeled competitive advantage may fade faster than expected.
 - Tax shields may be delayed or unusable.
 - Dilution and financing claims may be incomplete without security-level disclosures.
 
