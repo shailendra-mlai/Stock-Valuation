@@ -59,6 +59,7 @@ class UIValuationConfig:
     tax_shield_discount_rate: float | None = None
     minimum_cash: float = 500.0
     data_file: str | None = None
+    sec_user_agent: str | None = None
     market_price_override: float | None = None
     allow_financial_company: bool = False
     scenarios: dict[str, ScenarioAssumption] | None = None
@@ -285,7 +286,7 @@ def run_company_valuation(
     excel_exporter: Callable[..., Any] = export_excel,
     report_exporter: Callable[..., Any] = export_report,
 ) -> ValuationArtifacts:
-    company = company_loader(config.ticker, config.data_file, config.data_file is None)
+    company = company_loader(config.ticker, config.data_file, config.data_file is None, config.sec_user_agent)
     company.currency = config.currency
     if config.market_price_override is not None:
         company.share_price = config.market_price_override
@@ -327,12 +328,13 @@ def valuation_bridge_rows(result: Any) -> list[dict[str, Any]]:
 
 def render_metric_cards(result: Any) -> None:
     s = result.summary
-    columns = st.columns(5)
+    columns = st.columns(6)
     columns[0].metric("Intrinsic Value / Share", format_currency(s["intrinsic_value_per_share"]))
     columns[1].metric("Market Price", format_currency(s["market_price"]))
-    columns[2].metric("Premium / Discount", format_percentage(s["premium_discount"]), delta=format_percentage(s["premium_discount"]))
-    columns[3].metric("APV Enterprise Value", format_large_currency(s["apv_enterprise_value"]))
-    columns[4].metric("Equity Value", format_large_currency(s["equity_value"]))
+    columns[2].metric("Market Cap", format_large_currency(s.get("market_cap")))
+    columns[3].metric("Premium / Discount", format_percentage(s["premium_discount"]), delta=format_percentage(s["premium_discount"]))
+    columns[4].metric("APV Enterprise Value", format_large_currency(s["apv_enterprise_value"]))
+    columns[5].metric("Equity Value", format_large_currency(s["equity_value"]))
 
 
 def render_overall_status(status: str) -> None:
