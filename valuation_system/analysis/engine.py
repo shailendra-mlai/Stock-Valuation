@@ -45,6 +45,7 @@ def _historical(company: CompanyData, assumptions: ValuationAssumptions) -> tupl
             "gross_margin": (item.revenue - item.cogs) / item.revenue if item.revenue else None,
             "ebit_margin": item.ebit / item.revenue if item.revenue else None,
             "nopat": normalized_nopat,
+            "tax_efficiency": normalized_nopat / item.ebit if item.ebit else None,
             "nopat_margin": margin,
             "owc": owc,
             "operating_invested_capital": ic,
@@ -87,16 +88,19 @@ def _forecast(
     new_shares: float = 0,
     liquidation: bool = False,
     liquidation_recovery_rate: float = 0.35,
+    terminal_ronic_override: float | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, float], list[dict]]:
     latest = company.latest
     years = assumptions.forecast_years
+    scenario_tocc = assumptions.tocc + tocc_delta
     growth = _ramp(assumptions.revenue_growth_start + growth_delta, assumptions.revenue_growth_terminal + terminal_growth_delta, years)
     margins = _ramp(assumptions.ebit_margin_start + margin_delta, assumptions.ebit_margin_terminal + margin_delta / 2, years)
     historical_turnover = latest.revenue / max(operating_invested_capital(latest), 1)
     target_turnover = max(0.25, historical_turnover + turnover_delta)
     turnovers = _ramp(max(0.2, historical_turnover), target_turnover, years)
     da_pct = latest.da / latest.revenue if latest.revenue else 0.08
-    revenue, prior_ic, prior_owc, debt = latest.revenue, operating_invested_capital(latest), operating_working_capital(latest), latest.debt
+    starting_debt = 0.0 if assumptions.debt_policy == "no_debt" else latest.debt
+    revenue, prior_ic, prior_owc, debt = latest.revenue, operating_invested_capital(latest), operating_working_capital(latest), starting_debt
     carryforward = 0.0
     nol_without_interest = assumptions.initial_operating_nol
     nol_with_interest = assumptions.initial_operating_nol
@@ -157,7 +161,8 @@ def _forecast(
             "average_debt": avg_debt, "interest_rate": assumptions.interest_rate,
             "interest_expense": interest,
             "opening_cash": opening_cash, "equity_raise": raise_amount,
-            "ending_cash": cash_balance,
+            "ending_cash": cash_balance, "discount_factor": 1 / (1 + scenario_tocc) ** (index + 1),
+            "pv_fcf": fcf / (1 + scenario_tocc) ** (index + 1),
         })
         shield_rows.append({
             "year": year, "phase": "Explicit", "ati": ati, "limit": assumptions.interest_limit_percentage * ati,
@@ -174,7 +179,6 @@ def _forecast(
         carryforward = carryforward_end
         nol_without_interest, nol_with_interest = nol_without_end, nol_with_end
         prior_ic, prior_owc = invested_capital, owc
-    scenario_tocc = assumptions.tocc + tocc_delta
     terminal_g = assumptions.terminal_growth_rate + terminal_growth_delta
     overperformance: list[dict[str, Any]] = []
     fade_years = assumptions.competitive_advantage_years
@@ -232,6 +236,8 @@ def _forecast(
             "ending_debt": debt, "average_debt": avg_debt, "interest_rate": assumptions.interest_rate,
             "interest_expense": interest, "opening_cash": opening_cash, "equity_raise": 0.0,
             "ending_cash": cash_balance,
+            "discount_factor": 1 / (1 + scenario_tocc) ** (years + index + 1),
+            "pv_fcf": fcf / (1 + scenario_tocc) ** (years + index + 1),
         }
         overperformance.append(row)
         shield_rows.append({
@@ -252,7 +258,7 @@ def _forecast(
         prior_ic, prior_owc = invested_capital, owc
         previous_nopat, previous_revenue = nopat_value, revenue
 
-    terminal_ronic = assumptions.effective_terminal_ronic(scenario_tocc)
+    terminal_ronic = terminal_ronic_override or assumptions.effective_terminal_ronic(scenario_tocc)
     final_row = overperformance[-1] if overperformance else forecast[-1]
     total_years = years + fade_years
     cv = continuing_value(final_row["nopat"], terminal_g, terminal_ronic, scenario_tocc)
@@ -304,6 +310,10 @@ def _forecast(
         "tocc": scenario_tocc, "terminal_growth": terminal_g,
         "terminal_ronic": terminal_ronic,
         "terminal_reinvestment_rate": terminal_g / terminal_ronic,
+        "terminal_nopat": final_row["nopat"],
+        "terminal_nopat_next": final_row["nopat"] * (1 + terminal_g),
+        "terminal_fcf": final_row["nopat"] * (1 + terminal_g) * (1 - terminal_g / terminal_ronic),
+        "continuing_value_at_terminal": cv,
         "minimum_cash_balance": min([latest.cash + latest.marketable_securities] + [r["ending_cash"] for r in forecast + overperformance]),
         "liquidity_shortfall": max(0.0, assumptions.minimum_cash - min([latest.cash + latest.marketable_securities] + [r["ending_cash"] for r in forecast + overperformance])),
         "liquidation": liquidation,
@@ -352,11 +362,14 @@ def run_valuation(company: CompanyData, assumptions: ValuationAssumptions) -> Va
         ("Peer C", 1.05, 35000, 25000, 0.12),
         ("Peer D", 1.80, 9000, 2500, 0.20),
     ]
+    peer_names = (assumptions.peer_tickers + ["Peer A", "Peer B", "Peer C", "Peer D"])[:4]
     peers = [
-        {"peer": name, "equity_beta": eb, "equity": eq, "debt": debt, "debt_beta": db,
-         "tax_rate": assumptions.tax_rate, "asset_beta": asset_beta(eb, eq, db, debt),
+        {"peer": peer_names[index], "equity_beta": eb, "equity": eq, "debt": debt, "debt_beta": db,
+         "tax_rate": assumptions.tax_rate, "raw_asset_beta": asset_beta(eb, eq, db, debt),
+         "adjusted_asset_beta": 0.67 * asset_beta(eb, eq, db, debt) + 0.33,
+         "asset_beta": asset_beta(eb, eq, db, debt),
          "weight": 0.25, "source": "Illustrative peer assumptions; replace with sourced market data"}
-        for name, eb, eq, debt, db in peer_specs
+        for index, (_, eb, eq, debt, db) in enumerate(peer_specs)
     ]
     scenarios = []
     for name, scenario in assumptions.scenarios.items():
@@ -381,7 +394,21 @@ def run_valuation(company: CompanyData, assumptions: ValuationAssumptions) -> Va
             except ValueError:
                 value = None
             sensitivity_rows.append({"tocc": assumptions.tocc + tocc_delta, "terminal_growth": assumptions.terminal_growth_rate + g_delta, "value_per_share": value})
-    sensitivities = {"tocc_vs_growth": sensitivity_rows}
+    ronic_rows = []
+    for tocc_delta in (-0.02, -0.01, 0, 0.01, 0.02):
+        scenario_tocc = assumptions.tocc + tocc_delta
+        for ronic_delta in (-0.02, -0.01, 0, 0.01, 0.02):
+            terminal_ronic = max(assumptions.terminal_growth_rate + 0.001, scenario_tocc + ronic_delta)
+            try:
+                _, _, sens, _ = _forecast(
+                    company, assumptions, tocc_delta=tocc_delta,
+                    terminal_ronic_override=terminal_ronic,
+                )
+                value = sens["intrinsic_value_per_share"]
+            except ValueError:
+                value = None
+            ronic_rows.append({"tocc": scenario_tocc, "terminal_ronic": terminal_ronic, "value_per_share": value})
+    sensitivities = {"tocc_vs_growth": sensitivity_rows, "tocc_vs_ronic": ronic_rows}
     checks = _checks(historical, forecast, overperformance, summary, assumptions, company)
     failures = sum(c.status == "FAIL" for c in checks)
     warnings = sum(c.status == "WARNING" for c in checks)
