@@ -23,6 +23,7 @@ USER_AGENT = "Mozilla/5.0 (compatible; ValuationSystem/1.0; public-financial-ana
 RISK_FREE_RATE = 0.0445
 MARKET_RISK_PREMIUM = 0.0418
 FORECAST_YEARS = 10
+COMPETITIVE_ADVANTAGE_YEARS = 10
 
 SECTOR_BETA = {
     "Communication Services": 1.00,
@@ -308,7 +309,7 @@ def value_sp500(records: list[dict[str, Any]]) -> tuple[list[BatchValuationRow],
         beta = SECTOR_BETA.get(sector, 1.0)
         tocc = RISK_FREE_RATE + beta * MARKET_RISK_PREMIUM
         terminal_growth = 0.02 if sector in {"Energy", "Materials", "Real Estate", "Utilities"} else 0.025
-        terminal_ronic = max(SECTOR_RONIC.get(sector, 0.10), tocc + 0.01)
+        terminal_ronic = tocc
         start_growth = min(0.20, max(-0.05, item.get("historical_growth") if item.get("historical_growth") is not None else terminal_growth + 0.02))
         target_margin = min(0.35, max(0.03, sector_margins[sector]))
         start_margin = item.get("historical_margin") if item.get("historical_margin") is not None else item["latest_ebit"] / item["latest_revenue"]
@@ -344,10 +345,20 @@ def value_sp500(records: list[dict[str, Any]]) -> tuple[list[BatchValuationRow],
             base.market_price = item["market_price"]
             output.append(base)
             continue
+        fade_fcfs: list[float] = []
+        fade_start_ronic = max(SECTOR_RONIC.get(sector, tocc), tocc)
+        for year in range(1, COMPETITIVE_ADVANTAGE_YEARS + 1):
+            fade_ronic = fade_start_ronic + (tocc - fade_start_ronic) * year / COMPETITIVE_ADVANTAGE_YEARS
+            next_nopat = last_nopat * (1 + terminal_growth)
+            fade_investment = max(0.0, (next_nopat - last_nopat) / max(fade_ronic, 1e-9))
+            fade_fcfs.append(next_nopat - fade_investment)
+            last_nopat = next_nopat
         reinvestment_rate = terminal_growth / terminal_ronic
         continuing_value = last_nopat * (1 + terminal_growth) * (1 - reinvestment_rate) / (tocc - terminal_growth)
         pv_explicit = _present_value(forecast_fcfs, tocc)
-        pv_cv = continuing_value / (1 + tocc) ** FORECAST_YEARS
+        pv_fade = sum(value / (1 + tocc) ** (FORECAST_YEARS + i + 1) for i, value in enumerate(fade_fcfs))
+        pv_terminal = continuing_value / (1 + tocc) ** (FORECAST_YEARS + COMPETITIVE_ADVANTAGE_YEARS)
+        pv_cv = pv_fade + pv_terminal
         operating_ev = pv_explicit + pv_cv
         interest = item["interest_expense"]
         shield_cash_flows = []
@@ -408,6 +419,7 @@ def value_sp500(records: list[dict[str, Any]]) -> tuple[list[BatchValuationRow],
         "risk_free_rate": RISK_FREE_RATE,
         "market_risk_premium": MARKET_RISK_PREMIUM,
         "forecast_years": FORECAST_YEARS,
+        "competitive_advantage_years": COMPETITIVE_ADVANTAGE_YEARS,
         "constituent_source": CONSTITUENTS_URL,
         "financial_source": "https://api.nasdaq.com/api/company/{ticker}/financials?frequency=1",
         "market_source": "https://api.nasdaq.com/api/quote/{ticker}/summary?assetclass=stocks",
