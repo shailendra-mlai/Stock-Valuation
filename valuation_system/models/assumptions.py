@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -21,6 +22,66 @@ class ScenarioAssumption:
     new_shares: float = 0.0
     liquidation: bool = False
     liquidation_recovery_rate: float = 0.35
+
+
+SCENARIO_BOOLEAN_FIELDS = {"liquidation"}
+SCENARIO_FIELDS = set(ScenarioAssumption.__dataclass_fields__)
+
+
+def _probability(value: Any) -> float:
+    probability = float(value)
+    if probability > 1:
+        probability /= 100
+    if not 0 <= probability <= 1:
+        raise ValueError("scenario probability must be between 0% and 100%")
+    return probability
+
+
+def parse_scenario_spec(spec: str) -> tuple[str, dict[str, Any]]:
+    """Parse NAME;field=value scenario input used by both CLI entry points."""
+    parts = [part.strip() for part in str(spec).split(";") if part.strip()]
+    if not parts or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,39}", parts[0]):
+        raise ValueError("scenario must start with a valid name")
+    name = parts[0].lower()
+    values: dict[str, Any] = {}
+    for item in parts[1:]:
+        if "=" not in item:
+            raise ValueError(f"invalid scenario field '{item}'; use field=value")
+        key, raw = (value.strip() for value in item.split("=", 1))
+        if key not in SCENARIO_FIELDS:
+            raise ValueError(f"unsupported scenario field: {key}")
+        if key in SCENARIO_BOOLEAN_FIELDS:
+            normalized = raw.lower()
+            if normalized not in {"true", "false", "1", "0", "yes", "no"}:
+                raise ValueError(f"{key} must be true or false")
+            values[key] = normalized in {"true", "1", "yes"}
+        elif key == "probability":
+            values[key] = _probability(raw)
+        else:
+            values[key] = float(raw)
+    return name, values
+
+
+def apply_scenario_overrides(
+    assumptions: "ValuationAssumptions",
+    scenario_specs: list[str] | None = None,
+    probability_specs: list[str] | None = None,
+) -> None:
+    """Apply repeatable CLI scenario definitions and probability overrides."""
+    scenarios = dict(assumptions.scenarios)
+    for spec in scenario_specs or []:
+        name, changes = parse_scenario_spec(spec)
+        base = asdict(scenarios[name]) if name in scenarios else {"probability": 0.0}
+        scenarios[name] = ScenarioAssumption(**{**base, **changes})
+    for spec in probability_specs or []:
+        if "=" not in spec:
+            raise ValueError("scenario probability must use NAME=PERCENT")
+        name, raw = (value.strip() for value in spec.split("=", 1))
+        name = name.lower()
+        if name not in scenarios:
+            raise ValueError(f"unknown scenario probability name: {name}")
+        scenarios[name].probability = _probability(raw)
+    assumptions.scenarios = scenarios
 
 
 @dataclass
@@ -92,6 +153,8 @@ class ValuationAssumptions:
         if not 0 <= reinvestment <= 1:
             raise ValueError("terminal reinvestment rate must be between 0% and 100%")
         probability = sum(s.probability for s in self.scenarios.values())
+        if any(not 0 <= s.probability <= 1 for s in self.scenarios.values()):
+            raise ValueError("each scenario probability must be between 0% and 100%")
         if abs(probability - 1.0) > 1e-9:
             raise ValueError("scenario probabilities must total 100%")
         if self.initial_operating_nol < 0 or self.annual_sbc_dilution_rate < 0:
