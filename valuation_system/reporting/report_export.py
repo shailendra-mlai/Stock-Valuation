@@ -79,6 +79,8 @@ TOCC is {_pct(s['tocc'])}, using CAPM with an operating asset beta rather than t
 
 Interest tax shields are modeled separately with an EBIT-like ATI convention and a 30% deductibility limit. Interest carryforwards and parallel operating NOL schedules—with and without interest—are rolled explicitly. The usable shield is the incremental cash-tax reduction; continuing shields are capitalized only when debt, taxable income, and NOL utilization support them.
 
+The cash roll-forward identifies a minimum external funding requirement of **{_money(s['minimum_external_funding'])} million**. The first minimum-cash breach is **{s['first_liquidity_breach_year'] or 'none'}**. A projected funding need is reported as a risk warning rather than a model-integrity failure; no financing is silently added to the valuation.
+
 ## 12. APV valuation
 
 - PV of explicit unlevered FCF: {_money(s['pv_explicit_fcf'])} million

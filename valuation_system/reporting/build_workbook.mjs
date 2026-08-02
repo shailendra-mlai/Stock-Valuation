@@ -207,7 +207,7 @@ const toccSelectedRow = 11 + model.tocc_peers.length;
   const periods = [...f, ...op]; sh.getRange("A4:I4").values = [["Year", "Phase", "Opening cash", "UFCF", "New borrowing", "Equity raise", "Debt repayment", "Cash interest less shield", "Ending cash"]];
   const rows = periods.map(r => [r.year, r.phase, r.opening_cash, r.fcf, r.new_borrowing, r.equity_raise, r.mandatory_repayment, r.interest_expense - (model.tax_shield.find(x => x.year === r.year)?.usable_tax_shield || 0), r.ending_cash]);
   if (rows.length) sh.getRange(`A5:I${4 + rows.length}`).values = rows; setupTable(sh, `A5:I${4 + rows.length}`, "A4:I4"); sh.getRange(`C5:I${4 + rows.length}`).format.numberFormat = money;
-  const summaryRow = 7 + rows.length; sh.getRange(`A${summaryRow}:B${summaryRow + 2}`).values = [["Minimum modeled cash", s.minimum_cash_balance], ["Required minimum cash", a.minimum_cash], ["Liquidity shortfall", s.liquidity_shortfall]]; sh.getRange(`B${summaryRow}:B${summaryRow + 2}`).format.numberFormat = money; sh.getRange("A:A").format.columnWidth = 26; sh.getRange("B:B").format.columnWidth = 20; sh.getRange("C:I").format.columnWidth = 17;
+  const summaryRow = 7 + rows.length; sh.getRange(`A${summaryRow}:B${summaryRow + 4}`).values = [["Minimum modeled cash", s.minimum_cash_balance], ["Required minimum cash", a.minimum_cash], ["Minimum external funding", s.minimum_external_funding], ["First breach year", s.first_liquidity_breach_year], ["Years below minimum", s.years_below_minimum_cash]]; sh.getRange(`B${summaryRow}:B${summaryRow + 2}`).format.numberFormat = money; sh.getRange("A:A").format.columnWidth = 30; sh.getRange("B:B").format.columnWidth = 20; sh.getRange("C:I").format.columnWidth = 17;
 }
 
 // Tax shield
