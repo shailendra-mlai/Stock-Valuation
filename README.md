@@ -99,14 +99,12 @@ The company script accepts any publicly traded nonfinancial-company ticker suppo
 - `<TICKER>_Valuation_<YYYYMMDD>.xlsx`
 - `<TICKER>_Valuation_Report_<YYYYMMDD>.md`
 
-Scenario assumptions can be supplied directly on the command line. Repeat `--scenario` to change drivers and `--scenario-probability` to set probabilities. Probabilities accept either decimals or percentages:
+The four scenarios—Failure, Downside, Base, and Upside—are fixed. Each starts at 25%; users may change only probabilities with repeatable `--scenario-probability` options. Probabilities accept either decimals or percentages and must total 100%:
 
 ```bash
 python company_analysis.py \
   --ticker RIVN \
   --data-file sample_company_data.csv \
-  --scenario "downside;revenue_growth_delta=-0.08;ebit_margin_delta=-0.06;tocc_delta=0.015" \
-  --scenario "upside;revenue_growth_delta=0.07;ebit_margin_delta=0.05;new_shares=25" \
   --scenario-probability failure=10 \
   --scenario-probability downside=25 \
   --scenario-probability base=45 \
@@ -114,7 +112,7 @@ python company_analysis.py \
   --output ./output
 ```
 
-Scenario driver rates use decimal form (`-0.08` means negative eight percentage points). The available fields are `probability`, `revenue_growth_delta`, `ebit_margin_delta`, `capital_turnover_delta`, `terminal_growth_delta`, `tocc_delta`, `new_borrowing`, `equity_raise`, `new_shares`, `liquidation`, and `liquidation_recovery_rate`.
+Comparable companies are selected automatically from Yahoo Finance's **People Also Watch** list. The script retrieves each usable peer's equity beta, market capitalization, and debt from Yahoo quote statistics, un-levers the beta, applies the standard one-third adjustment toward 1.0, and uses Yahoo's recommendation scores as weights. The resulting adjusted asset beta drives TOCC. If usable Yahoo peer statistics are unavailable, the output discloses and uses a sector-beta fallback.
 - `<TICKER>_Valuation_<YYYYMMDD>.json`
 
 The Excel workbook follows the expanded Rivian-style architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, competitive-advantage fade, working capital, fixed assets, free cash flow, TOCC, debt, liquidity, parallel NOL/interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.

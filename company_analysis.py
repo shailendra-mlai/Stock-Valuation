@@ -10,6 +10,7 @@ from statistics import median
 
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
+from valuation_system.data.peer_data import attach_yahoo_comparables, selected_peer_beta
 from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
 from valuation_system.models.assumptions import ValuationAssumptions, apply_scenario_overrides
 from valuation_system.reporting.excel_export import export_excel
@@ -59,10 +60,6 @@ def main() -> int:
     parser.add_argument("--output", default="./output")
     parser.add_argument("--market-price-override", type=float)
     parser.add_argument(
-        "--scenario", action="append", default=[],
-        help="Repeatable NAME;field=value scenario override. Probability accepts 0-1 or 0-100.",
-    )
-    parser.add_argument(
         "--scenario-probability", action="append", default=[], metavar="NAME=PERCENT",
         help="Repeatable scenario probability override, for example base=40.",
     )
@@ -81,7 +78,14 @@ def main() -> int:
         assumptions.minimum_cash = args.minimum_cash
     if args.annual_sbc_dilution_rate is not None:
         assumptions.annual_sbc_dilution_rate = args.annual_sbc_dilution_rate
-    apply_scenario_overrides(assumptions, args.scenario, args.scenario_probability)
+    apply_scenario_overrides(assumptions, probability_specs=args.scenario_probability)
+    attach_yahoo_comparables(company, assumptions.debt_beta)
+    peer_beta = selected_peer_beta(company.comparables)
+    if peer_beta is not None:
+        assumptions.selected_asset_beta = peer_beta
+        assumptions.peer_tickers = [row["peer"] for row in company.comparables]
+    else:
+        assumptions.peer_tickers = []
     assumptions.allow_financial_company = args.allow_financial_company
     assumptions.validate()
     if args.market_price_override is not None:

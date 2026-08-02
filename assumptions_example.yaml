@@ -11,11 +11,6 @@ overperformance:
 tocc:
   risk_free_rate: null
   market_risk_premium: 0.045
-  peer_tickers:
-    - TSLA
-    - GM
-    - F
-    - LCID
 tax:
   normalized_operating_tax_rate: 0.21
   cash_tax_rate: 0.17
@@ -29,22 +24,10 @@ debt_policy:
   type: scheduled_amortization
 scenarios:
   failure:
-    probability: 0.20
-    liquidation: true
-    liquidation_recovery_rate: 0.25
+    probability: 0.25
   downside:
     probability: 0.25
-    revenue_growth_delta: -0.05
-    ebit_margin_delta: -0.04
-    capital_turnover_delta: -0.20
-    terminal_growth_delta: -0.005
-    tocc_delta: 0.01
   base:
-    probability: 0.40
+    probability: 0.25
   upside:
-    probability: 0.15
-    revenue_growth_delta: 0.05
-    ebit_margin_delta: 0.04
-    capital_turnover_delta: 0.20
-    terminal_growth_delta: 0.005
-    tocc_delta: -0.005
+    probability: 0.25
