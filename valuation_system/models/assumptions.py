@@ -86,7 +86,7 @@ def apply_scenario_overrides(
 
 @dataclass
 class ValuationAssumptions:
-    ticker: str = "RIVN"
+    ticker: str = "DEMO"
     valuation_date: str = field(default_factory=lambda: date.today().isoformat())
     forecast_years: int = 10
     competitive_advantage_years: int = 10
