@@ -15,6 +15,7 @@ import yaml
 
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
+from valuation_system.data.peer_data import attach_yahoo_comparables, load_yahoo_peer_data, selected_peer_beta
 from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
 from valuation_system.models.assumptions import ScenarioAssumption, ValuationAssumptions
 from valuation_system.reporting.excel_export import export_excel
@@ -122,13 +123,16 @@ def coerce_scenarios(value: dict[str, Any] | None) -> dict[str, ScenarioAssumpti
     if value is None:
         return None
     if not isinstance(value, dict) or not value:
-        raise ValueError("At least one scenario is required.")
+        raise ValueError("The four fixed scenarios are required.")
+    fixed = ValuationAssumptions().scenarios
+    supplied = {str(name).lower().strip(): raw for name, raw in value.items()}
+    if set(supplied) != set(fixed):
+        raise ValueError("Scenarios are fixed as Failure, Downside, Base, and Upside.")
     scenarios: dict[str, ScenarioAssumption] = {}
-    for name, raw in value.items():
-        key = str(name).lower().strip()
-        if not SCENARIO_NAME_PATTERN.fullmatch(key):
-            raise ValueError(f"Invalid scenario name: {name}")
-        scenarios[key] = raw if isinstance(raw, ScenarioAssumption) else ScenarioAssumption(**raw)
+    for key, default in fixed.items():
+        raw = supplied[key]
+        probability = raw.probability if isinstance(raw, ScenarioAssumption) else raw.get("probability")
+        scenarios[key] = ScenarioAssumption(**{**asdict(default), "probability": float(probability)})
     validate_scenario_probabilities(scenarios)
     return scenarios
 
@@ -197,7 +201,8 @@ def _assumptions_from_company(company: Any, config: UIValuationConfig) -> Valuat
     sector = _sector_key(company.sector)
     risk_free = RISK_FREE_RATE if config.risk_free_rate is None else config.risk_free_rate
     market_premium = MARKET_RISK_PREMIUM if config.market_risk_premium is None else config.market_risk_premium
-    beta = SECTOR_BETA.get(sector, 1.0) if config.selected_asset_beta is None else config.selected_asset_beta
+    peer_beta = selected_peer_beta(company.comparables)
+    beta = peer_beta if peer_beta is not None else SECTOR_BETA.get(sector, 1.0)
     start_growth = config.revenue_growth_start
     if start_growth is None:
         start_growth = min(0.20, max(-0.05, median(growth) if growth else 0.05))
@@ -213,7 +218,7 @@ def _assumptions_from_company(company: Any, config: UIValuationConfig) -> Valuat
         tax_rate=config.tax_rate if config.tax_rate is not None else 0.21,
         cash_tax_rate=config.cash_tax_rate, risk_free_rate=risk_free,
         market_risk_premium=market_premium, selected_asset_beta=beta,
-        peer_tickers=config.peer_tickers or ["TSLA", "GM", "F", "LCID"],
+        peer_tickers=[row["peer"] for row in company.comparables],
         terminal_growth_rate=config.terminal_growth_rate, terminal_ronic=config.terminal_ronic,
         enforce_terminal_ronic_to_tocc=config.enforce_terminal_ronic_to_tocc,
         minimum_cash=config.minimum_cash, debt_beta=config.debt_beta,
@@ -285,9 +290,11 @@ def run_company_valuation(
     engine_runner: Callable[..., Any] = run_valuation,
     excel_exporter: Callable[..., Any] = export_excel,
     report_exporter: Callable[..., Any] = export_report,
+    peer_loader: Callable[..., list[dict[str, Any]]] = load_yahoo_peer_data,
 ) -> ValuationArtifacts:
     company = company_loader(config.ticker, config.data_file, config.data_file is None, config.sec_user_agent)
     company.currency = config.currency
+    attach_yahoo_comparables(company, config.debt_beta, loader=peer_loader)
     if config.market_price_override is not None:
         company.share_price = config.market_price_override
     assumptions = _assumptions_from_company(company, config)
