@@ -43,7 +43,9 @@ def test_terminal_growth_validation():
 
 
 def test_scenario_probability_validation():
-    validate_scenario_probabilities(ValuationAssumptions().scenarios)
+    assumptions = ValuationAssumptions()
+    validate_scenario_probabilities(assumptions.scenarios)
+    assert [scenario.probability for scenario in assumptions.scenarios.values()] == [0.25] * 4
     bad = ValuationAssumptions().scenarios
     bad["base"].probability = 0.39
     with pytest.raises(ValueError):
@@ -68,15 +70,17 @@ def test_cli_scenario_inputs_and_probability_overrides():
 
 def test_ui_configuration_accepts_scenario_inputs():
     scenarios = {
-        "downside": {"probability": 0.30, "revenue_growth_delta": -0.05},
-        "base": {"probability": 0.70},
+        "failure": {"probability": 0.10, "revenue_growth_delta": 99},
+        "downside": {"probability": 0.20, "revenue_growth_delta": 99},
+        "base": {"probability": 0.50},
+        "upside": {"probability": 0.20},
     }
     config = build_valuation_config(
         ticker="RIVN", valuation_date="2026-08-02", forecast_years=10,
         currency="USD", peer_tickers="TSLA, GM", terminal_growth_rate=0.025,
         scenarios=scenarios,
     )
-    assert config.scenarios["downside"].probability == pytest.approx(0.30)
+    assert config.scenarios["downside"].probability == pytest.approx(0.20)
     assert config.scenarios["downside"].revenue_growth_delta == pytest.approx(-0.05)
 
 
@@ -120,7 +124,13 @@ def test_engine_invocation_and_download_files(tmp_path):
         currency="USD", peer_tickers="TSLA, GM, F, LCID", terminal_growth_rate=0.025,
         data_file="sample_company_data.csv", output_dir=str(tmp_path),
     )
-    artifacts = run_company_valuation(config, engine_runner=engine, excel_exporter=excel, report_exporter=report)
+    peers = lambda *_args, **_kwargs: [
+        {"peer": "TSLA", "company_name": "Tesla", "equity_beta": 2.0, "equity": 100,
+         "debt": 10, "debt_beta": 0.15, "raw_asset_beta": 1.83,
+         "adjusted_asset_beta": 1.56, "recommendation_score": 1.0, "weight": 1.0,
+         "source": "test"}
+    ]
+    artifacts = run_company_valuation(config, engine_runner=engine, excel_exporter=excel, report_exporter=report, peer_loader=peers)
     assert called["engine"] is True
     assert artifacts.result.ticker == "RIVN"
     assert artifacts.excel_path.exists()
@@ -142,4 +152,4 @@ def test_unsupported_financial_company_handling(tmp_path):
         output_dir=str(tmp_path),
     )
     with pytest.raises(ValueError, match="Financial institution"):
-        run_company_valuation(config, company_loader=loader)
+        run_company_valuation(config, company_loader=loader, peer_loader=lambda *_args, **_kwargs: [])
