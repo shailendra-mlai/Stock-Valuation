@@ -55,6 +55,7 @@ def main() -> int:
     parser.add_argument("--annual-sbc-dilution-rate", type=float)
     parser.add_argument("--assumptions")
     parser.add_argument("--data-file")
+    parser.add_argument("--sec-user-agent", help="SEC-compliant application name and contact email; defaults to SEC_USER_AGENT")
     parser.add_argument("--output", default="./output")
     parser.add_argument("--market-price-override", type=float)
     parser.add_argument(
@@ -67,7 +68,7 @@ def main() -> int:
     )
     parser.add_argument("--allow-financial-company", action="store_true")
     args = parser.parse_args()
-    company = load_company_data(args.ticker, args.data_file, live=args.data_file is None)
+    company = load_company_data(args.ticker, args.data_file, live=args.data_file is None, sec_user_agent=args.sec_user_agent)
     assumptions = (
         ValuationAssumptions.from_yaml(args.assumptions, ticker=args.ticker)
         if args.assumptions else assumptions_from_history(args.ticker, company, args.forecast_years)

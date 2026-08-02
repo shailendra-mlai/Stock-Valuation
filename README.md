@@ -57,6 +57,8 @@ streamlit run streamlit_app.py
 
 The dashboard accepts a ticker, forecast and TOCC assumptions, comparable-company tickers, financing inputs, editable scenarios and probabilities, and optional assumptions or historical-data uploads. The scenario editor supports adding or deleting rows and changing operating deltas, financing, dilution, liquidation, and recovery assumptions. Probabilities must total 100%. It calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
 
+Historical analysis uses the latest five comparable fiscal years. An uploaded CSV or Excel file takes precedence. When no file is uploaded, the application resolves the ticker to a CIK and downloads standardized annual facts from the SEC Company Facts API. Market price and market capitalization are retrieved separately because SEC filings do not provide a current share price.
+
 ### Streamlit Community Cloud deployment
 
 - Repository: this GitHub repository
@@ -69,7 +71,10 @@ The application does not require an API key for the included RIVN sample. If a f
 # .streamlit/secrets.toml — do not commit this file
 SEC_API_KEY = "your-key"
 FRED_API_KEY = "your-key"
+SEC_USER_AGENT = "Stock-Valuation your-email@example.com"
 ```
+
+The SEC does not require an API key, but it requires automated requests to declare an identifying user agent with a contact email. Set `SEC_USER_AGENT` in Community Cloud secrets using an address you authorize for SEC requests. The application stays below the SEC's published 10-request-per-second limit and uses the official `data.sec.gov/api/xbrl/companyfacts/` endpoint.
 
 On hosts without the bundled Node workbook runtime, the web adapter creates a simplified cloud-safe Excel workbook from the engine’s structured results. The full 25-tab workbook remains available when the configured Node exporter is present.
 
@@ -156,7 +161,7 @@ python app.py \
   --output ./output
 ```
 
-Use `--live` to attempt a live provider. The implementation deliberately rejects incomplete or low-confidence statement mappings and falls back to the auditable offline sample. Supply a normalized CSV with `--data-file` for another company.
+Use `--live` to download five annual periods from SEC Company Facts. Set `SEC_USER_AGENT="Application Name contact@example.com"` or pass `--sec-user-agent "Application Name contact@example.com"` to comply with SEC request-header requirements. The implementation deliberately rejects incomplete or low-confidence statement mappings and falls back to the auditable offline sample when one exists. Supply a normalized CSV with `--data-file` to override SEC data.
 
 ## Data-source hierarchy
 
@@ -196,6 +201,7 @@ Blue font denotes user-editable inputs, black formulas, green cross-sheet links,
 - The included RIVN dataset and market price are illustrative and are not current investment data.
 - The S&P 500 mode is a standardized screening model. It applies the three-period structure and terminal RONIC discipline, but sector beta, margin convergence, capital-turnover convergence, and financing details must be replaced by issuer-specific evidence before investment use.
 - SEC XBRL tags vary materially by issuer. Production use requires issuer-specific mapping review rather than a universal zero-fill mapping.
+- Companies with fewer than five comparable annual SEC periods are shown with the available periods and a model warning; missing years are never fabricated.
 - Peer beta and debt beta rows are illustrative until refreshed from sourced market data.
 - The simplified U.S. interest limitation uses EBIT-like ATI and does not model every jurisdictional transition rule; initial NOLs require a reviewed input.
 - Convertibles, option tranches, pensions, minority interests, liquidation recoveries, and future financing require security- or note-level inputs when material.
