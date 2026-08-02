@@ -67,7 +67,7 @@ def test_uploaded_data_takes_precedence_over_sec(monkeypatch):
         company_data, "load_sec_company_data",
         lambda _ticker: (_ for _ in ()).throw(AssertionError("SEC should not be called")),
     )
-    company = company_data.load_company_data("RIVN", "sample_company_data.csv", live=True)
+    company = company_data.load_company_data("DEMO", "sample_company_data.csv", live=True)
     assert len(company.historical) == 5
     assert company.provenance[0].retrieval_method == "Offline sample CSV"
 

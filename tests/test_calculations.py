@@ -19,13 +19,13 @@ def test_nopat_positive_and_negative():
 
 
 def test_operating_working_capital():
-    y = load_company_data("RIVN").latest
+    y = load_company_data("DEMO").latest
     expected = y.receivables + y.inventory + y.other_current_operating_assets - y.accounts_payable - y.accrued_operating_liabilities - y.deferred_revenue - y.other_operating_liabilities
     assert operating_working_capital(y) == expected
 
 
 def test_invested_capital():
-    y = load_company_data("RIVN").latest
+    y = load_company_data("DEMO").latest
     assert operating_invested_capital(y) == operating_working_capital(y) + y.net_ppe + y.operating_lease_assets + y.other_operating_assets
 
 
@@ -111,7 +111,7 @@ def test_scenario_weighting():
 
 
 def test_integration_mock_company():
-    company = load_company_data("RIVN")
+    company = load_company_data("DEMO")
     assumptions = ValuationAssumptions()
     result = run_valuation(company, assumptions)
     assert len(result.historical) == 5
@@ -142,7 +142,7 @@ def test_integration_mock_company():
 
 
 def test_liquidity_check_passes_when_cash_covers_forecast():
-    company = load_company_data("RIVN")
+    company = load_company_data("DEMO")
     company.latest.cash = 100_000.0
     result = run_valuation(company, ValuationAssumptions())
     liquidity = next(check for check in result.checks if check.category == "Liquidity")
@@ -152,7 +152,7 @@ def test_liquidity_check_passes_when_cash_covers_forecast():
 
 
 def test_scenario_specific_dilution_and_liquidation_floor():
-    company = load_company_data("RIVN")
+    company = load_company_data("DEMO")
     assumptions = ValuationAssumptions()
     assumptions.scenarios["failure"].new_shares = 100
     result = run_valuation(company, assumptions)
@@ -166,7 +166,7 @@ def test_scenario_specific_dilution_and_liquidation_floor():
 
 
 def test_financial_company_rejected():
-    company = load_company_data("RIVN")
+    company = load_company_data("DEMO")
     company.sector = "Banking"
     with pytest.raises(ValueError):
         run_valuation(company, ValuationAssumptions())

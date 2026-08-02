@@ -18,7 +18,7 @@ from valuation_system.ui.formatting import (
 
 
 def test_ticker_cleaning_and_validation():
-    assert clean_ticker(" rivn ") == "RIVN"
+    assert clean_ticker(" demo ") == "DEMO"
     assert clean_ticker("brk.b") == "BRK.B"
     with pytest.raises(ValueError):
         clean_ticker("bad ticker!")
@@ -76,7 +76,7 @@ def test_ui_configuration_accepts_scenario_inputs():
         "upside": {"probability": 0.20},
     }
     config = build_valuation_config(
-        ticker="RIVN", valuation_date="2026-08-02", forecast_years=10,
+        ticker="DEMO", valuation_date="2026-08-02", forecast_years=10,
         currency="USD", peer_tickers="TSLA, GM", terminal_growth_rate=0.025,
         scenarios=scenarios,
     )
@@ -86,11 +86,11 @@ def test_ui_configuration_accepts_scenario_inputs():
 
 def test_configuration_object_creation():
     config = build_valuation_config(
-        ticker=" rivn ", valuation_date="2026-08-02", forecast_years=10,
+        ticker=" demo ", valuation_date="2026-08-02", forecast_years=10,
         currency="USD", peer_tickers="TSLA, GM", terminal_growth_rate=0.025,
         risk_free_rate=None, market_risk_premium=0.0418, selected_asset_beta=None,
     )
-    assert config.ticker == "RIVN"
+    assert config.ticker == "DEMO"
     assert config.peer_tickers == ["TSLA", "GM"]
     assert config.risk_free_rate is None
 
@@ -121,7 +121,7 @@ def test_engine_invocation_and_download_files(tmp_path):
         return path
 
     config = build_valuation_config(
-        ticker="RIVN", valuation_date="2026-08-02", forecast_years=10,
+        ticker="DEMO", valuation_date="2026-08-02", forecast_years=10,
         currency="USD", peer_tickers="TSLA, GM, F, LCID", terminal_growth_rate=0.025,
         data_file="sample_company_data.csv", output_dir=str(tmp_path),
     )
@@ -133,7 +133,7 @@ def test_engine_invocation_and_download_files(tmp_path):
     ]
     artifacts = run_company_valuation(config, engine_runner=engine, excel_exporter=excel, report_exporter=report, peer_loader=peers)
     assert called["engine"] is True
-    assert artifacts.result.ticker == "RIVN"
+    assert artifacts.result.ticker == "DEMO"
     assert artifacts.excel_path.exists()
     assert artifacts.report_path.exists()
     assert artifacts.assumptions_path.exists()
@@ -141,14 +141,14 @@ def test_engine_invocation_and_download_files(tmp_path):
 
 
 def test_unsupported_financial_company_handling(tmp_path):
-    company = load_company_data("RIVN")
+    company = load_company_data("DEMO")
     company.sector = "Banking"
 
     def loader(*_args, **_kwargs):
         return company
 
     config = build_valuation_config(
-        ticker="RIVN", valuation_date="2026-08-02", forecast_years=10,
+        ticker="DEMO", valuation_date="2026-08-02", forecast_years=10,
         currency="USD", peer_tickers="TSLA", terminal_growth_rate=0.025,
         output_dir=str(tmp_path),
     )
