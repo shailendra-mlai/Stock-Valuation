@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from valuation_system.ui.formatting import (
     format_currency, format_large_currency, format_percentage,
 )
 from valuation_system.ui.session_state import clear_results, initialize_session_state, store_artifacts
+from valuation_system.models.assumptions import ScenarioAssumption, ValuationAssumptions
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,65 @@ def _format_frame(frame: pd.DataFrame, percent_columns: list[str] | None = None,
     formats = {column: "{:.1%}" for column in percent_columns}
     formats.update({column: "{:,.1f}" for column in money_columns})
     return frame.style.format(formats, na_rep="—")
+
+
+def _scenario_editor(uploaded_defaults: dict) -> dict[str, dict]:
+    uploaded = uploaded_defaults.get("scenarios")
+    source = uploaded or ValuationAssumptions().scenarios
+    rows = []
+    for name, raw in source.items():
+        values = asdict(raw) if isinstance(raw, ScenarioAssumption) else asdict(ScenarioAssumption(**raw))
+        rows.append({
+            "Scenario": str(name).title(),
+            "Probability (%)": values["probability"] * 100,
+            "Revenue growth Δ (pp)": values["revenue_growth_delta"] * 100,
+            "EBIT margin Δ (pp)": values["ebit_margin_delta"] * 100,
+            "Capital turnover Δ": values["capital_turnover_delta"],
+            "Terminal growth Δ (pp)": values["terminal_growth_delta"] * 100,
+            "TOCC Δ (pp)": values["tocc_delta"] * 100,
+            "New borrowing ($mm)": values["new_borrowing"],
+            "Equity raise ($mm)": values["equity_raise"],
+            "New shares (mm)": values["new_shares"],
+            "Liquidation": values["liquidation"],
+            "Recovery (%)": values["liquidation_recovery_rate"] * 100,
+        })
+    with st.sidebar.expander("Scenarios and Probabilities", expanded=True):
+        st.caption("Edit assumptions directly. Add or delete rows as needed; probabilities must total 100%. Use horizontal scroll or Fullscreen to edit every driver.")
+        edited = st.data_editor(
+            pd.DataFrame(rows), num_rows="dynamic", hide_index=True,
+            use_container_width=True, key="scenario_editor",
+            column_config={
+                "Scenario": st.column_config.TextColumn(required=True),
+                "Probability (%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0, format="%.1f"),
+                "Liquidation": st.column_config.CheckboxColumn(),
+                "Recovery (%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0, format="%.1f"),
+            },
+        )
+        total = float(pd.to_numeric(edited.get("Probability (%)"), errors="coerce").fillna(0).sum())
+        if abs(total - 100) < 1e-8:
+            st.success("Probability total: 100.0%")
+        else:
+            st.error(f"Probability total: {total:.1f}% — adjust to 100.0% before running.")
+    scenarios: dict[str, dict] = {}
+    for row in edited.to_dict("records"):
+        name = str(row.get("Scenario") or "").lower().strip()
+        if not name:
+            continue
+        number = lambda column: 0.0 if pd.isna(row.get(column)) else float(row.get(column) or 0)
+        scenarios[name] = {
+            "probability": number("Probability (%)") / 100,
+            "revenue_growth_delta": number("Revenue growth Δ (pp)") / 100,
+            "ebit_margin_delta": number("EBIT margin Δ (pp)") / 100,
+            "capital_turnover_delta": number("Capital turnover Δ"),
+            "terminal_growth_delta": number("Terminal growth Δ (pp)") / 100,
+            "tocc_delta": number("TOCC Δ (pp)") / 100,
+            "new_borrowing": number("New borrowing ($mm)"),
+            "equity_raise": number("Equity raise ($mm)"),
+            "new_shares": number("New shares (mm)"),
+            "liquidation": bool(row.get("Liquidation") or False),
+            "liquidation_recovery_rate": number("Recovery (%)") / 100,
+        }
+    return scenarios
 
 
 def _sidebar_inputs() -> tuple[bool, dict]:
@@ -117,6 +178,8 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         shield_rate = None if auto_shield_rate else st.number_input("Tax-Shield Discount Rate", 0.0, 0.30, 0.09, 0.005, format="%.3f")
         minimum_cash = st.number_input("Minimum Operating Cash ($mm)", 0.0, value=float(_default(uploaded_defaults, "minimum_cash", 500.0)), step=100.0)
 
+    scenarios = _scenario_editor(uploaded_defaults)
+
     historical_upload = st.sidebar.file_uploader("Upload Historical Financial Data", type=["csv", "xlsx", "xls"])
     allow_financial = st.sidebar.checkbox("Allow financial-company override", value=False)
     run_clicked = st.sidebar.button("Run Valuation", type="primary", use_container_width=True)
@@ -135,7 +198,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         "debt_policy": DEBT_POLICIES[debt_label], "cash_tax_rate": cash_tax_rate,
         "interest_limit_percentage": interest_limit, "tax_shield_discount_rate": shield_rate,
         "minimum_cash": minimum_cash, "historical_upload": historical_upload,
-        "allow_financial_company": allow_financial,
+        "allow_financial_company": allow_financial, "scenarios": scenarios,
     }
 
 
@@ -235,6 +298,10 @@ def _render_apv(result) -> None:
 def _render_scenarios(result) -> None:
     st.metric("Probability-Weighted Intrinsic Value", format_currency(result.summary["probability_weighted_value"]))
     frame = pd.DataFrame(result.scenarios)
+    st.subheader("Scenario Inputs Used")
+    input_columns = ["scenario", "probability", "revenue_growth_delta", "ebit_margin_delta", "capital_turnover_delta", "terminal_growth_delta", "tocc_delta", "new_borrowing", "equity_raise", "new_shares", "liquidation", "liquidation_recovery_rate"]
+    st.dataframe(_format_frame(frame[input_columns], ["probability", "revenue_growth_delta", "ebit_margin_delta", "terminal_growth_delta", "tocc_delta", "liquidation_recovery_rate"], ["new_borrowing", "equity_raise"]), use_container_width=True, hide_index=True)
+    st.subheader("Scenario Valuation Results")
     st.dataframe(_format_frame(frame[["scenario", "probability", "tocc", "terminal_growth", "terminal_ronic", "apv_enterprise_value", "equity_value", "diluted_shares", "intrinsic_value_per_share"]], ["probability", "tocc", "terminal_growth", "terminal_ronic"], ["apv_enterprise_value", "equity_value"]), use_container_width=True, hide_index=True)
     st.plotly_chart(scenario_chart(result.scenarios), use_container_width=True, key="scenario_values")
     scenario_tabs = st.tabs([row["scenario"] for row in result.scenarios])
