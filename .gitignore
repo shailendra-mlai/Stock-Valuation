@@ -11,3 +11,5 @@ valuation_system/output/
 *_previews/
 *.model.json
 sp500_cache/
+.streamlit/secrets.toml
+*.log

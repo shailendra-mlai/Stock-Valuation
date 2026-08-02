@@ -20,6 +20,59 @@ export VALUATION_NODE="$(command -v node)"
 
 and create `node_modules` in the project root as a symlink to the Codex dependency path shown by the workspace loader.
 
+## Run the Web Application
+
+1. Clone the repository and enter the project directory.
+2. Create a virtual environment:
+
+```bash
+python -m venv .venv
+```
+
+3. Activate it.
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Windows:
+
+```powershell
+.venv\Scripts\activate
+```
+
+4. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Start the application:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The dashboard accepts a ticker, forecast and TOCC assumptions, comparable-company tickers, financing inputs, and optional assumptions or historical-data uploads. It calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
+
+### Streamlit Community Cloud deployment
+
+- Repository: this GitHub repository
+- Main file path: `streamlit_app.py`
+- Python version: 3.12
+
+The application does not require an API key for the included RIVN sample. If a future data provider requires credentials, add them through Streamlit Cloud **App settings → Secrets**, never to Git. A local template would look like:
+
+```toml
+# .streamlit/secrets.toml — do not commit this file
+SEC_API_KEY = "your-key"
+FRED_API_KEY = "your-key"
+```
+
+On hosts without the bundled Node workbook runtime, the web adapter creates a simplified cloud-safe Excel workbook from the engine’s structured results. The full 25-tab workbook remains available when the configured Node exporter is present.
+
 ## Two standalone analysis scripts
 
 ### 1. S&P 500 batch analysis
