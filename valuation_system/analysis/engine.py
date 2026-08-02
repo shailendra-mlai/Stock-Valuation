@@ -380,7 +380,19 @@ def run_valuation(company: CompanyData, assumptions: ValuationAssumptions) -> Va
             scenario.new_borrowing, scenario.equity_raise, scenario.new_shares,
             scenario.liquidation, scenario.liquidation_recovery_rate,
         )
-        scenarios.append({"scenario": name.title(), "probability": scenario.probability, **scenario_summary})
+        scenarios.append({
+            "scenario": name.title(), "probability": scenario.probability,
+            "revenue_growth_delta": scenario.revenue_growth_delta,
+            "ebit_margin_delta": scenario.ebit_margin_delta,
+            "capital_turnover_delta": scenario.capital_turnover_delta,
+            "terminal_growth_delta": scenario.terminal_growth_delta,
+            "tocc_delta": scenario.tocc_delta,
+            "new_borrowing": scenario.new_borrowing,
+            "equity_raise": scenario.equity_raise,
+            "new_shares": scenario.new_shares,
+            "liquidation_recovery_rate": scenario.liquidation_recovery_rate,
+            **scenario_summary,
+        })
     summary["probability_weighted_value"] = scenario_weighted_value(
         [s["intrinsic_value_per_share"] for s in scenarios],
         [s["probability"] for s in scenarios],
