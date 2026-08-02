@@ -3,7 +3,7 @@ import math
 import pytest
 
 from valuation_system.analysis.calculations import (
-    apv, asset_beta, capm, continuing_value, deductible_interest,
+    apv, asset_beta, capm, cash_tax_with_nol, continuing_value, deductible_interest,
     diluted_shares, economic_profit, equity_value, nopat, premium_discount,
     roic, ronic, scenario_weighted_value, unlevered_fcf,
 )
@@ -78,6 +78,17 @@ def test_interest_limit_and_carryforward():
     assert ending2 == 0
 
 
+def test_parallel_nol_cash_tax_schedule():
+    tax, used, ending = cash_tax_with_nol(100, 60, 0.21)
+    assert tax == pytest.approx(8.4)
+    assert used == 60
+    assert ending == 0
+    loss_tax, loss_used, loss_ending = cash_tax_with_nol(-25, ending, 0.21)
+    assert loss_tax == 0
+    assert loss_used == 0
+    assert loss_ending == 25
+
+
 def test_apv_and_equity_bridge():
     assert apv(1000, 50) == 1050
     assert equity_value(1050, 200, 25, 100, 10) == 935
@@ -105,11 +116,31 @@ def test_integration_mock_company():
     result = run_valuation(company, assumptions)
     assert len(result.historical) == 6
     assert len(result.forecast) == 10
+    assert len(result.overperformance) == 10
+    assert len(result.tax_shield) == 20
     assert result.summary["terminal_growth"] < result.summary["tocc"]
+    assert result.summary["terminal_ronic"] == pytest.approx(result.summary["tocc"])
+    assert result.overperformance[-1]["ronic"] == pytest.approx(result.summary["tocc"])
+    assert result.summary["pv_continuing_value"] == pytest.approx(
+        result.summary["pv_overperformance_fcf"] + result.summary["pv_terminal_value"]
+    )
     assert result.summary["overall_model_status"] in {"PASS", "WARNING", "FAIL"}
     assert math.isfinite(result.summary["intrinsic_value_per_share"])
     assert abs(sum(s["probability"] for s in result.scenarios) - 1) < 1e-9
     assert abs(result.summary["apv_enterprise_value"] - result.summary["operating_enterprise_value"] - result.summary["pv_financing_effects"]) < 1e-6
+    assert all(s["equity_value"] >= 0 for s in result.scenarios)
+
+
+def test_scenario_specific_dilution_and_liquidation_floor():
+    company = load_company_data("RIVN")
+    assumptions = ValuationAssumptions()
+    assumptions.scenarios["failure"].new_shares = 100
+    result = run_valuation(company, assumptions)
+    failure = next(row for row in result.scenarios if row["scenario"] == "Failure")
+    base = next(row for row in result.scenarios if row["scenario"] == "Base")
+    assert failure["liquidation"] is True
+    assert failure["diluted_shares"] == pytest.approx(base["diluted_shares"] + 100)
+    assert failure["intrinsic_value_per_share"] >= 0
 
 
 def test_financial_company_rejected():
