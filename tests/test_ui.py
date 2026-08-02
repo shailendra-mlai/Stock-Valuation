@@ -99,6 +99,7 @@ def test_result_formatting():
     assert format_currency(-12.5) == "($12.50)"
     assert format_percentage(-0.125) == "(12.5%)"
     assert format_large_currency(12_500) == "$12.5bn"
+    assert format_large_currency(776_000) == "$776.0bn"
     assert format_currency(None) == "—"
 
 
