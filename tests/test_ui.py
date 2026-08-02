@@ -4,7 +4,9 @@ import pytest
 
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
-from valuation_system.models.assumptions import ValuationAssumptions
+from valuation_system.models.assumptions import (
+    ValuationAssumptions, apply_scenario_overrides, parse_scenario_spec,
+)
 from valuation_system.ui.components import (
     build_valuation_config, clean_ticker, parse_optional_float,
     parse_peer_tickers, run_company_valuation, validate_scenario_probabilities,
@@ -46,6 +48,36 @@ def test_scenario_probability_validation():
     bad["base"].probability = 0.39
     with pytest.raises(ValueError):
         validate_scenario_probabilities(bad)
+
+
+def test_cli_scenario_inputs_and_probability_overrides():
+    name, values = parse_scenario_spec("downside;revenue_growth_delta=-0.08;tocc_delta=0.015")
+    assert name == "downside"
+    assert values["revenue_growth_delta"] == pytest.approx(-0.08)
+    assumptions = ValuationAssumptions()
+    apply_scenario_overrides(
+        assumptions,
+        ["downside;ebit_margin_delta=-0.06", "upside;new_shares=25"],
+        ["failure=10", "downside=20", "base=50", "upside=20"],
+    )
+    assumptions.validate()
+    assert assumptions.scenarios["base"].probability == pytest.approx(0.50)
+    assert assumptions.scenarios["downside"].ebit_margin_delta == pytest.approx(-0.06)
+    assert assumptions.scenarios["upside"].new_shares == pytest.approx(25)
+
+
+def test_ui_configuration_accepts_scenario_inputs():
+    scenarios = {
+        "downside": {"probability": 0.30, "revenue_growth_delta": -0.05},
+        "base": {"probability": 0.70},
+    }
+    config = build_valuation_config(
+        ticker="RIVN", valuation_date="2026-08-02", forecast_years=10,
+        currency="USD", peer_tickers="TSLA, GM", terminal_growth_rate=0.025,
+        scenarios=scenarios,
+    )
+    assert config.scenarios["downside"].probability == pytest.approx(0.30)
+    assert config.scenarios["downside"].revenue_growth_delta == pytest.approx(-0.05)
 
 
 def test_configuration_object_creation():

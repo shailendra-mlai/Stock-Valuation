@@ -138,6 +138,8 @@ def test_scenario_specific_dilution_and_liquidation_floor():
     result = run_valuation(company, assumptions)
     failure = next(row for row in result.scenarios if row["scenario"] == "Failure")
     base = next(row for row in result.scenarios if row["scenario"] == "Base")
+    assert "revenue_growth_delta" in failure
+    assert "liquidation_recovery_rate" in failure
     assert failure["liquidation"] is True
     assert failure["diluted_shares"] == pytest.approx(base["diluted_shares"] + 100)
     assert failure["intrinsic_value_per_share"] >= 0
