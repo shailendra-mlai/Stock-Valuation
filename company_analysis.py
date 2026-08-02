@@ -1,4 +1,4 @@
-"""Run a complete ticker-specific APV analysis and export a Rivian-style workbook."""
+"""Run a complete ticker-specific APV analysis and export a course-framework workbook."""
 
 from __future__ import annotations
 
