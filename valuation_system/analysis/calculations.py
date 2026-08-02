@@ -74,6 +74,19 @@ def deductible_interest(
     return deductible_current + carry_used, carry_used, ending_carry
 
 
+def cash_tax_with_nol(
+    taxable_income: float,
+    opening_nol: float,
+    tax_rate: float,
+) -> tuple[float, float, float]:
+    """Return cash tax, NOL used, and ending NOL for one period."""
+    positive_income = max(0.0, taxable_income)
+    nol_used = min(max(0.0, opening_nol), positive_income)
+    cash_tax = max(0.0, positive_income - nol_used) * tax_rate
+    ending_nol = max(0.0, opening_nol - nol_used) + max(0.0, -taxable_income)
+    return cash_tax, nol_used, ending_nol
+
+
 def pv(cash_flows: list[float], discount_rate: float) -> float:
     return sum(value / (1 + discount_rate) ** (i + 1) for i, value in enumerate(cash_flows))
 
