@@ -50,6 +50,68 @@ def _default_info_loader(ticker: str) -> dict[str, Any]:
     return yf.Ticker(ticker).get_info()
 
 
+def _statement_value(frame: Any, label: str, column: Any, default: float | None = None) -> float | None:
+    try:
+        value = frame.loc[label, column]
+        return default if value is None else float(value)
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def load_yahoo_roic_metrics(ticker: str) -> dict[str, float | None]:
+    """Calculate Kevin Kaiser-style ROIC-tree ratios from Yahoo annual statements."""
+    import yfinance as yf
+
+    company = yf.Ticker(ticker)
+    income = company.get_income_stmt(freq="yearly")
+    balance = company.get_balance_sheet(freq="yearly")
+    if income.empty or balance.empty:
+        return {}
+    income_columns = sorted(income.columns, reverse=True)
+    balance_columns = sorted(balance.columns, reverse=True)
+    current_income = income_columns[0]
+    prior_income = income_columns[1] if len(income_columns) > 1 else current_income
+    current_balance = balance_columns[0]
+    prior_balance = balance_columns[1] if len(balance_columns) > 1 else current_balance
+    revenue = _statement_value(income, "TotalRevenue", current_income, 0.0) or 0.0
+    prior_revenue = _statement_value(income, "TotalRevenue", prior_income, 0.0) or 0.0
+    ebit = _statement_value(income, "OperatingIncome", current_income, 0.0) or 0.0
+    pretax = _statement_value(income, "PretaxIncome", current_income, 0.0) or 0.0
+    tax = _statement_value(income, "TaxProvision", current_income, 0.0) or 0.0
+    current_ic = _statement_value(balance, "InvestedCapital", current_balance, 0.0) or 0.0
+    prior_ic = _statement_value(balance, "InvestedCapital", prior_balance, current_ic) or current_ic
+    average_ic = (current_ic + prior_ic) / 2
+    tax_rate = min(0.40, max(0.0, tax / pretax)) if pretax > 0 else 0.0
+    cash = _statement_value(balance, "CashCashEquivalentsAndShortTermInvestments", current_balance, 0.0) or 0.0
+    current_assets = _statement_value(balance, "CurrentAssets", current_balance, 0.0) or 0.0
+    current_liabilities = _statement_value(balance, "CurrentLiabilities", current_balance, 0.0) or 0.0
+    current_debt = _statement_value(balance, "CurrentDebt", current_balance, 0.0) or 0.0
+    operating_wcr = current_assets - cash - current_liabilities + current_debt
+
+    def ratio(statement: Any, label: str, column: Any) -> float | None:
+        value = _statement_value(statement, label, column)
+        return value / revenue if value is not None and revenue else None
+
+    return {
+        "roic_fiscal_year": int(getattr(current_income, "year", 0) or 0),
+        "revenue_growth": revenue / prior_revenue - 1 if prior_revenue else None,
+        "after_tax_roic": ebit * (1 - tax_rate) / average_ic if average_ic else None,
+        "pre_tax_roic": ebit / average_ic if average_ic else None,
+        "cash_tax_rate": tax_rate,
+        "ebit_margin": ebit / revenue if revenue else None,
+        "capital_turnover": revenue / average_ic if average_ic else None,
+        "cogs_revenue": ratio(income, "CostOfRevenue", current_income),
+        "sga_revenue": ratio(income, "SellingGeneralAndAdministration", current_income),
+        "rd_revenue": ratio(income, "ResearchAndDevelopment", current_income),
+        "net_ppe_revenue": ratio(balance, "NetPPE", current_balance),
+        "wcr_revenue": operating_wcr / revenue if revenue else None,
+        "cash_revenue": cash / revenue if revenue else None,
+        "receivables_revenue": ratio(balance, "Receivables", current_balance),
+        "inventory_revenue": ratio(balance, "Inventory", current_balance),
+        "payables_revenue": ratio(balance, "AccountsPayable", current_balance),
+    }
+
+
 def load_yahoo_peer_data(
     ticker: str,
     debt_beta: float = 0.15,
@@ -57,6 +119,7 @@ def load_yahoo_peer_data(
     *,
     request_get: Callable[..., Any] = requests.get,
     info_loader: Callable[[str], dict[str, Any]] = _default_info_loader,
+    metric_loader: Callable[[str], dict[str, Any]] = load_yahoo_roic_metrics,
 ) -> list[dict[str, Any]]:
     """Build a sourced peer-beta table from Yahoo related symbols and quote statistics."""
     recommendations = discover_yahoo_comparables(ticker, limit, request_get=request_get)
@@ -78,6 +141,10 @@ def load_yahoo_peer_data(
         except Exception:
             continue
         raw_beta = asset_beta(equity_beta, equity, debt_beta, debt)
+        try:
+            roic_metrics = metric_loader(item["peer"]) or {}
+        except Exception:
+            roic_metrics = {}
         rows.append({
             "peer": item["peer"],
             "company_name": info.get("shortName") or info.get("longName") or item["peer"],
@@ -89,7 +156,8 @@ def load_yahoo_peer_data(
             "adjusted_asset_beta": 0.67 * raw_beta + 0.33,
             "recommendation_score": item["recommendation_score"],
             "currency": quote_currency or financial_currency or "Unknown",
-            "source": "Yahoo Finance People Also Watch and quote statistics",
+            "source": "Yahoo Finance People Also Watch, quote statistics, and annual statements",
+            **roic_metrics,
         })
     score_total = sum(max(0.0, row["recommendation_score"]) for row in rows)
     for row in rows:
@@ -127,7 +195,7 @@ def attach_yahoo_comparables(
         value=[row["peer"] for row in rows],
         source=YAHOO_QUOTE_URL.format(ticker=company.ticker),
         source_date=date.today().isoformat(),
-        retrieval_method="Yahoo Finance People Also Watch plus peer quote statistics",
+        retrieval_method="Yahoo Finance People Also Watch plus peer quote statistics and annual statements",
         original_unit="mixed market data",
         normalized_unit="USD millions and beta",
         confidence="medium" if rows else "low",
