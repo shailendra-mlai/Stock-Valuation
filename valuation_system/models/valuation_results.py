@@ -21,6 +21,7 @@ class ValuationResult:
     ticker: str
     historical: list[dict[str, Any]]
     forecast: list[dict[str, Any]]
+    overperformance: list[dict[str, Any]]
     tocc_peers: list[dict[str, Any]]
     tax_shield: list[dict[str, Any]]
     scenarios: list[dict[str, Any]]
