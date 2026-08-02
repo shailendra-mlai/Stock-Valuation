@@ -443,6 +443,7 @@ def main() -> None:
         <style>
         .block-container {padding-top: 1.7rem; padding-bottom: 3rem;}
         [data-testid="stMetric"] {background: #f7f9fb; border: 1px solid #d9e2f3; padding: 14px; border-radius: 8px;}
+        [data-testid="stMetricValue"] {font-size: 1.65rem; overflow: visible;}
         h1, h2, h3 {color: #17365d;}
         </style>
     """, unsafe_allow_html=True)
