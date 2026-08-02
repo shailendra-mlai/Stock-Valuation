@@ -16,7 +16,7 @@ import yaml
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
 from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
-from valuation_system.models.assumptions import ValuationAssumptions
+from valuation_system.models.assumptions import ScenarioAssumption, ValuationAssumptions
 from valuation_system.reporting.excel_export import export_excel
 from valuation_system.reporting.report_export import export_report
 from valuation_system.ui.formatting import (
@@ -25,6 +25,7 @@ from valuation_system.ui.formatting import (
 
 
 TICKER_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
+SCENARIO_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,39}$")
 DEBT_POLICIES = {
     "Use current debt": "use_current_debt",
     "Constant nominal debt": "constant_nominal_debt",
@@ -60,6 +61,7 @@ class UIValuationConfig:
     data_file: str | None = None
     market_price_override: float | None = None
     allow_financial_company: bool = False
+    scenarios: dict[str, ScenarioAssumption] | None = None
     output_dir: str = "valuation_system/output"
 
 
@@ -107,14 +109,33 @@ def validate_terminal_growth(terminal_growth: float, tocc: float | None) -> None
 
 
 def validate_scenario_probabilities(scenarios: dict[str, Any]) -> None:
-    total = sum(float(value.probability if hasattr(value, "probability") else value["probability"]) for value in scenarios.values())
+    probabilities = [float(value.probability if hasattr(value, "probability") else value["probability"]) for value in scenarios.values()]
+    if any(value < 0 or value > 1 for value in probabilities):
+        raise ValueError("Each scenario probability must be between 0% and 100%.")
+    total = sum(probabilities)
     if abs(total - 1.0) > 1e-9:
         raise ValueError("Scenario probabilities must total 100%.")
+
+
+def coerce_scenarios(value: dict[str, Any] | None) -> dict[str, ScenarioAssumption] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not value:
+        raise ValueError("At least one scenario is required.")
+    scenarios: dict[str, ScenarioAssumption] = {}
+    for name, raw in value.items():
+        key = str(name).lower().strip()
+        if not SCENARIO_NAME_PATTERN.fullmatch(key):
+            raise ValueError(f"Invalid scenario name: {name}")
+        scenarios[key] = raw if isinstance(raw, ScenarioAssumption) else ScenarioAssumption(**raw)
+    validate_scenario_probabilities(scenarios)
+    return scenarios
 
 
 def build_valuation_config(**values: Any) -> UIValuationConfig:
     values["ticker"] = clean_ticker(values.get("ticker", ""))
     values["peer_tickers"] = parse_peer_tickers(values.get("peer_tickers"))
+    values["scenarios"] = coerce_scenarios(values.get("scenarios"))
     valuation_date = values.get("valuation_date", date.today())
     values["valuation_date"] = valuation_date.isoformat() if hasattr(valuation_date, "isoformat") else str(valuation_date)
     config = UIValuationConfig(**values)
@@ -159,6 +180,7 @@ def flatten_uploaded_assumptions(raw: dict[str, Any]) -> dict[str, Any]:
         "interest_limit_percentage": tax.get("interest_limit_percentage"),
         "debt_policy": debt.get("type"), "minimum_cash": liquidity.get("minimum_cash"),
         "revenue_growth_start": raw.get("revenue_growth_start"), "ebit_margin_terminal": raw.get("ebit_margin_terminal"),
+        "scenarios": raw.get("scenarios"),
     }
 
 
@@ -197,6 +219,7 @@ def _assumptions_from_company(company: Any, config: UIValuationConfig) -> Valuat
         tax_shield_discount_rate=config.tax_shield_discount_rate,
         debt_policy=config.debt_policy, interest_limit_percentage=config.interest_limit_percentage,
         allow_financial_company=config.allow_financial_company,
+        scenarios=config.scenarios or ValuationAssumptions().scenarios,
     )
     validate_scenario_probabilities(assumptions.scenarios)
     assumptions.validate()
