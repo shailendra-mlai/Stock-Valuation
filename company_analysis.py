@@ -11,7 +11,7 @@ from statistics import median
 from valuation_system.analysis.engine import run_valuation
 from valuation_system.data.company_data import load_company_data
 from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
-from valuation_system.models.assumptions import ValuationAssumptions
+from valuation_system.models.assumptions import ValuationAssumptions, apply_scenario_overrides
 from valuation_system.reporting.excel_export import export_excel
 from valuation_system.reporting.report_export import export_report
 
@@ -57,6 +57,14 @@ def main() -> int:
     parser.add_argument("--data-file")
     parser.add_argument("--output", default="./output")
     parser.add_argument("--market-price-override", type=float)
+    parser.add_argument(
+        "--scenario", action="append", default=[],
+        help="Repeatable NAME;field=value scenario override. Probability accepts 0-1 or 0-100.",
+    )
+    parser.add_argument(
+        "--scenario-probability", action="append", default=[], metavar="NAME=PERCENT",
+        help="Repeatable scenario probability override, for example base=40.",
+    )
     parser.add_argument("--allow-financial-company", action="store_true")
     args = parser.parse_args()
     company = load_company_data(args.ticker, args.data_file, live=args.data_file is None)
@@ -72,8 +80,9 @@ def main() -> int:
         assumptions.minimum_cash = args.minimum_cash
     if args.annual_sbc_dilution_rate is not None:
         assumptions.annual_sbc_dilution_rate = args.annual_sbc_dilution_rate
-    assumptions.validate()
+    apply_scenario_overrides(assumptions, args.scenario, args.scenario_probability)
     assumptions.allow_financial_company = args.allow_financial_company
+    assumptions.validate()
     if args.market_price_override is not None:
         company.share_price = args.market_price_override
     result = run_valuation(company, assumptions)
