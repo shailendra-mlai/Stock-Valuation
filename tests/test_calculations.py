@@ -114,7 +114,7 @@ def test_integration_mock_company():
     company = load_company_data("RIVN")
     assumptions = ValuationAssumptions()
     result = run_valuation(company, assumptions)
-    assert len(result.historical) == 6
+    assert len(result.historical) == 5
     assert len(result.forecast) == 10
     assert len(result.overperformance) == 10
     assert len(result.tax_shield) == 20
@@ -126,6 +126,7 @@ def test_integration_mock_company():
     )
     assert result.summary["overall_model_status"] in {"PASS", "WARNING", "FAIL"}
     assert math.isfinite(result.summary["intrinsic_value_per_share"])
+    assert result.summary["market_cap"] == pytest.approx(company.share_price * company.basic_shares)
     assert abs(sum(s["probability"] for s in result.scenarios) - 1) < 1e-9
     assert abs(result.summary["apv_enterprise_value"] - result.summary["operating_enterprise_value"] - result.summary["pv_financing_effects"]) < 1e-6
     assert all(s["equity_value"] >= 0 for s in result.scenarios)
