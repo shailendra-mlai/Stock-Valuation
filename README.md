@@ -57,7 +57,7 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-The dashboard accepts a ticker, forecast and TOCC assumptions, comparable-company tickers, financing inputs, editable scenarios and probabilities, and optional assumptions or historical-data uploads. The scenario editor supports adding or deleting rows and changing operating deltas, financing, dilution, liquidation, and recovery assumptions. Probabilities must total 100%. It calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
+The dashboard accepts a ticker, forecast and TOCC assumptions, financing inputs, fixed valuation scenarios with editable probabilities, and optional assumptions or historical-data uploads. Probabilities must total 100%. Comparable companies are selected automatically from Yahoo Finance. The app calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
 
 Historical analysis uses the latest five comparable fiscal years. An uploaded CSV or Excel file takes precedence. When no file is uploaded, the application resolves the ticker to a CIK and downloads standardized annual facts from the SEC Company Facts API. Market price and market capitalization are retrieved separately because SEC filings do not provide a current share price.
 
@@ -67,7 +67,7 @@ Historical analysis uses the latest five comparable fiscal years. An uploaded CS
 - Main file path: `streamlit_app.py`
 - Python version: 3.12
 
-The application does not require an API key for the included RIVN sample. If a future data provider requires credentials, add them through Streamlit Cloud **App settings → Secrets**, never to Git. A local template would look like:
+The application does not require an API key for the included synthetic `DEMO` sample. If a future data provider requires credentials, add them through Streamlit Cloud **App settings → Secrets**, never to Git. A local template would look like:
 
 ```toml
 # .streamlit/secrets.toml — do not commit this file
@@ -105,7 +105,7 @@ The four scenarios—Failure, Downside, Base, and Upside—are fixed. Each start
 
 ```bash
 python company_analysis.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --data-file sample_company_data.csv \
   --scenario-probability failure=10 \
   --scenario-probability downside=25 \
@@ -117,13 +117,13 @@ python company_analysis.py \
 Comparable companies are selected automatically from Yahoo Finance's **People Also Watch** list. The script retrieves each usable peer's equity beta, market capitalization, and debt from Yahoo quote statistics, un-levers the beta, applies the standard one-third adjustment toward 1.0, and uses Yahoo's recommendation scores as weights. The resulting adjusted asset beta drives TOCC. If usable Yahoo peer statistics are unavailable, the output discloses and uses a sector-beta fallback.
 - `<TICKER>_Valuation_<YYYYMMDD>.json`
 
-The Excel workbook follows the expanded Rivian-style architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, competitive-advantage fade, working capital, fixed assets, free cash flow, TOCC, debt, liquidity, parallel NOL/interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.
+The Excel workbook follows the expanded course-framework architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, competitive-advantage fade, working capital, fixed assets, free cash flow, TOCC, debt, liquidity, parallel NOL/interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.
 
 Use an assumptions override when needed:
 
 ```bash
 python company_analysis.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --assumptions assumptions_example.yaml \
   --output ./output
 ```
@@ -132,7 +132,7 @@ For an offline/reviewed normalized dataset:
 
 ```bash
 python company_analysis.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --data-file sample_company_data.csv \
   --output ./output
 ```
@@ -140,7 +140,7 @@ python company_analysis.py \
 ## Combined app usage
 
 ```bash
-python app.py --ticker RIVN --forecast-years 10 --output ./output
+python app.py --ticker DEMO --forecast-years 10 --output ./output
 ```
 
 The original combined entry point remains available:
@@ -155,7 +155,7 @@ With assumptions:
 
 ```bash
 python app.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --forecast-years 10 \
   --assumptions assumptions_example.yaml \
   --output ./output
@@ -198,7 +198,7 @@ Blue font denotes user-editable inputs, black formulas, green cross-sheet links,
 
 ## Known limitations
 
-- The included RIVN dataset and market price are illustrative and are not current investment data.
+- The included synthetic `DEMO` dataset and market price are illustrative and are not current investment data.
 - The S&P 500 mode is a standardized screening model. It applies the three-period structure and terminal RONIC discipline, but sector beta, margin convergence, capital-turnover convergence, and financing details must be replaced by issuer-specific evidence before investment use.
 - SEC XBRL tags vary materially by issuer. Production use requires issuer-specific mapping review rather than a universal zero-fill mapping.
 - Companies with fewer than five comparable annual SEC periods are shown with the available periods and a model warning; missing years are never fabricated.
@@ -225,7 +225,7 @@ The tested sample command is:
 
 ```bash
 python company_analysis.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --data-file sample_company_data.csv \
   --forecast-years 10 \
   --output ./output
@@ -246,7 +246,7 @@ Tests cover the core calculation engine, three-period APV/equity bridge, termina
 
 ```bash
 python app.py \
-  --ticker RIVN \
+  --ticker DEMO \
   --forecast-years 10 \
   --assumptions assumptions_example.yaml \
   --output valuation_system/output
