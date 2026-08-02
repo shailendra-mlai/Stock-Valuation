@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from valuation_system.ui.charts import (
@@ -239,6 +240,108 @@ def _render_roic_tree(result) -> None:
         st.warning(f"ROIC tree reconciliation: {check.status}")
 
 
+def _target_roic_comparable_row(result) -> dict:
+    history = sorted(result.historical, key=lambda row: row["year"])
+    latest = history[-1]
+    prior = history[-2] if len(history) > 1 else latest
+    revenue = latest["revenue"]
+    average_ic = latest["average_invested_capital"]
+    tax_rate = result.assumptions["tax_rate"] if latest["ebit"] > 0 else 0.0
+    return {
+        "Company": result.ticker,
+        "Fiscal Year": latest["year"],
+        "Revenue Growth": revenue / prior["revenue"] - 1 if prior["revenue"] else None,
+        "After-tax Operating ROIC": latest["ebit"] * (1 - tax_rate) / average_ic if average_ic else None,
+        "Pre-tax ROIC": latest["ebit"] / average_ic if average_ic else None,
+        "Cash Tax Rate": tax_rate,
+        "EBIT Margin": latest["ebit_margin"],
+        "Capital Turnover": latest["capital_turnover"],
+        "COGS / Revenue": latest["cogs"] / revenue if revenue else None,
+        "SG&A / Revenue": latest["sga"] / revenue if revenue else None,
+        "R&D / Revenue": latest["rd"] / revenue if revenue else None,
+        "Net PP&E / Revenue": latest["net_ppe"] / revenue if revenue else None,
+        "WCR / Revenue": latest["owc"] / revenue if revenue else None,
+        "Cash / Revenue": (latest["cash"] + latest["marketable_securities"]) / revenue if revenue else None,
+        "Receivables / Revenue": latest["receivables"] / revenue if revenue else None,
+        "Inventory / Revenue": latest["inventory"] / revenue if revenue else None,
+        "Payables / Revenue": latest["accounts_payable"] / revenue if revenue else None,
+        "Source": "Valuation historical data",
+    }
+
+
+def _roic_comparable_frame(result) -> pd.DataFrame:
+    mapping = {
+        "roic_fiscal_year": "Fiscal Year", "revenue_growth": "Revenue Growth",
+        "after_tax_roic": "After-tax Operating ROIC", "pre_tax_roic": "Pre-tax ROIC",
+        "cash_tax_rate": "Cash Tax Rate", "ebit_margin": "EBIT Margin",
+        "capital_turnover": "Capital Turnover", "cogs_revenue": "COGS / Revenue",
+        "sga_revenue": "SG&A / Revenue", "rd_revenue": "R&D / Revenue",
+        "net_ppe_revenue": "Net PP&E / Revenue", "wcr_revenue": "WCR / Revenue",
+        "cash_revenue": "Cash / Revenue", "receivables_revenue": "Receivables / Revenue",
+        "inventory_revenue": "Inventory / Revenue", "payables_revenue": "Payables / Revenue",
+    }
+    rows = [_target_roic_comparable_row(result)]
+    for peer in result.tocc_peers:
+        if not any(peer.get(key) is not None for key in mapping):
+            continue
+        row = {"Company": peer.get("peer"), "Source": peer.get("source")}
+        row.update({label: peer.get(key) for key, label in mapping.items()})
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _comparison_chart(frame: pd.DataFrame, metric: str, *, percentage: bool = True):
+    data = frame[["Company", metric]].dropna().copy()
+    data["Series"] = data["Company"].eq(frame.iloc[0]["Company"]).map({True: "Selected company", False: "Comparable"})
+    figure = px.bar(
+        data, x="Company", y=metric, color="Series", title=metric,
+        color_discrete_map={"Selected company": "#17365d", "Comparable": "#5b9bd5"},
+    )
+    figure.update_layout(showlegend=False, margin=dict(l=20, r=20, t=45, b=20), height=330)
+    figure.update_yaxes(tickformat=".1%" if percentage else ".2f")
+    return figure
+
+
+def _render_roic_comparables(result) -> None:
+    st.subheader("Kevin Kaiser ROIC Tree — Comparable-Company Diagnostic")
+    st.caption(
+        "Lecture structure: after-tax operating ROIC = pre-tax ROIC × (1 − cash tax rate); "
+        "pre-tax ROIC = normalized EBIT margin × capital turnover. Lower branches diagnose cost structure, "
+        "working-capital intensity, and fixed-asset intensity."
+    )
+    frame = _roic_comparable_frame(result)
+    if len(frame) == 1:
+        st.warning("Yahoo annual-statement data were unavailable for the automatically selected comparables.")
+    percent_columns = [column for column in frame.columns if column not in {"Company", "Fiscal Year", "Capital Turnover", "Source"}]
+    st.dataframe(_format_frame(frame, percent_columns), use_container_width=True, hide_index=True)
+
+    st.markdown("#### ROIC outcome and first-level decomposition")
+    c1, c2, c3 = st.columns(3)
+    c1.plotly_chart(_comparison_chart(frame, "After-tax Operating ROIC"), use_container_width=True, key="comp_roic")
+    c2.plotly_chart(_comparison_chart(frame, "Pre-tax ROIC"), use_container_width=True, key="comp_pretax_roic")
+    c3.plotly_chart(_comparison_chart(frame, "Cash Tax Rate"), use_container_width=True, key="comp_tax")
+
+    st.markdown("#### Operating efficiency × capital effectiveness")
+    c4, c5 = st.columns(2)
+    c4.plotly_chart(_comparison_chart(frame, "EBIT Margin"), use_container_width=True, key="comp_margin")
+    c5.plotly_chart(_comparison_chart(frame, "Capital Turnover", percentage=False), use_container_width=True, key="comp_turnover")
+
+    st.markdown("#### EBIT-margin drivers")
+    cost_metrics = ["COGS / Revenue", "SG&A / Revenue", "R&D / Revenue"]
+    for column, metric in zip(st.columns(3), cost_metrics):
+        column.plotly_chart(_comparison_chart(frame, metric), use_container_width=True, key=f"comp_{metric}")
+
+    st.markdown("#### Invested-capital and operating-cycle drivers")
+    capital_metrics = ["Net PP&E / Revenue", "WCR / Revenue", "Receivables / Revenue", "Inventory / Revenue", "Payables / Revenue", "Cash / Revenue"]
+    for start in range(0, len(capital_metrics), 3):
+        for column, metric in zip(st.columns(3), capital_metrics[start:start + 3]):
+            column.plotly_chart(_comparison_chart(frame, metric), use_container_width=True, key=f"comp_{metric}")
+    st.caption(
+        "Yahoo's reported invested capital is used for peer turnover; WCR is approximated as current assets less cash, "
+        "less current liabilities, plus current debt. Missing provider classifications remain blank rather than being estimated."
+    )
+
+
 def _render_forecast(result) -> None:
     frame = pd.DataFrame(result.forecast + result.overperformance)
     columns = ["year", "phase", "revenue", "revenue_growth", "ebit_margin", "nopat", "invested_capital", "net_investment", "roic", "ronic", "fcf", "discount_factor", "pv_fcf"]
@@ -374,17 +477,18 @@ def main() -> None:
         return
 
     st.caption(f"Last run: {st.session_state.last_run_timestamp} | Ticker: {result.ticker} | Values in {result.company['currency']} millions unless noted")
-    tabs = st.tabs(["Summary", "Historical Analysis", "ROIC Tree", "Forecast", "TOCC", "APV and Equity Bridge", "Scenarios", "Sensitivity", "Model Checks", "Data Sources"])
+    tabs = st.tabs(["Summary", "Historical Analysis", "ROIC Tree", "ROIC Tree — Comparables", "Forecast", "TOCC", "APV and Equity Bridge", "Scenarios", "Sensitivity", "Model Checks", "Data Sources"])
     with tabs[0]: _render_summary(result)
     with tabs[1]: _render_historical(result)
     with tabs[2]: _render_roic_tree(result)
-    with tabs[3]: _render_forecast(result)
-    with tabs[4]: _render_tocc(result)
-    with tabs[5]: _render_apv(result)
-    with tabs[6]: _render_scenarios(result)
-    with tabs[7]: _render_sensitivity(result)
-    with tabs[8]: _render_checks(result)
-    with tabs[9]:
+    with tabs[3]: _render_roic_comparables(result)
+    with tabs[4]: _render_forecast(result)
+    with tabs[5]: _render_tocc(result)
+    with tabs[6]: _render_apv(result)
+    with tabs[7]: _render_scenarios(result)
+    with tabs[8]: _render_sensitivity(result)
+    with tabs[9]: _render_checks(result)
+    with tabs[10]:
         provenance = [{key: _display_value(value) for key, value in row.items()} for row in result.provenance]
         st.dataframe(pd.DataFrame(provenance), use_container_width=True, hide_index=True)
         render_downloads({"excel": st.session_state.excel_path, "report": st.session_state.report_path, "assumptions": st.session_state.assumptions_path, "source": st.session_state.source_data_path}, result.ticker, key_prefix="sources")
