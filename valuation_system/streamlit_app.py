@@ -70,34 +70,26 @@ def _format_frame(frame: pd.DataFrame, percent_columns: list[str] | None = None,
 
 def _scenario_editor(uploaded_defaults: dict) -> dict[str, dict]:
     uploaded = uploaded_defaults.get("scenarios")
-    source = uploaded or ValuationAssumptions().scenarios
+    canonical = ValuationAssumptions().scenarios
     rows = []
-    for name, raw in source.items():
-        values = asdict(raw) if isinstance(raw, ScenarioAssumption) else asdict(ScenarioAssumption(**raw))
+    for name, raw in canonical.items():
+        uploaded_raw = (uploaded or {}).get(name, {})
+        if isinstance(uploaded_raw, ScenarioAssumption):
+            probability = uploaded_raw.probability
+        else:
+            probability = uploaded_raw.get("probability", raw.probability)
         rows.append({
             "Scenario": str(name).title(),
-            "Probability (%)": values["probability"] * 100,
-            "Revenue growth Δ (pp)": values["revenue_growth_delta"] * 100,
-            "EBIT margin Δ (pp)": values["ebit_margin_delta"] * 100,
-            "Capital turnover Δ": values["capital_turnover_delta"],
-            "Terminal growth Δ (pp)": values["terminal_growth_delta"] * 100,
-            "TOCC Δ (pp)": values["tocc_delta"] * 100,
-            "New borrowing ($mm)": values["new_borrowing"],
-            "Equity raise ($mm)": values["equity_raise"],
-            "New shares (mm)": values["new_shares"],
-            "Liquidation": values["liquidation"],
-            "Recovery (%)": values["liquidation_recovery_rate"] * 100,
+            "Probability (%)": float(probability) * 100,
         })
     with st.sidebar.expander("Scenarios and Probabilities", expanded=True):
-        st.caption("Edit assumptions directly. Add or delete rows as needed; probabilities must total 100%. Use horizontal scroll or Fullscreen to edit every driver.")
+        st.caption("The four valuation scenarios are fixed. Change only their probabilities; each defaults to 25% and the total must equal 100%.")
         edited = st.data_editor(
-            pd.DataFrame(rows), num_rows="dynamic", hide_index=True,
+            pd.DataFrame(rows), num_rows="fixed", hide_index=True,
             use_container_width=True, key="scenario_editor",
             column_config={
-                "Scenario": st.column_config.TextColumn(required=True),
+                "Scenario": st.column_config.TextColumn(disabled=True),
                 "Probability (%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0, format="%.1f"),
-                "Liquidation": st.column_config.CheckboxColumn(),
-                "Recovery (%)": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=5.0, format="%.1f"),
             },
         )
         total = float(pd.to_numeric(edited.get("Probability (%)"), errors="coerce").fillna(0).sum())
@@ -108,22 +100,9 @@ def _scenario_editor(uploaded_defaults: dict) -> dict[str, dict]:
     scenarios: dict[str, dict] = {}
     for row in edited.to_dict("records"):
         name = str(row.get("Scenario") or "").lower().strip()
-        if not name:
-            continue
-        number = lambda column: 0.0 if pd.isna(row.get(column)) else float(row.get(column) or 0)
-        scenarios[name] = {
-            "probability": number("Probability (%)") / 100,
-            "revenue_growth_delta": number("Revenue growth Δ (pp)") / 100,
-            "ebit_margin_delta": number("EBIT margin Δ (pp)") / 100,
-            "capital_turnover_delta": number("Capital turnover Δ"),
-            "terminal_growth_delta": number("Terminal growth Δ (pp)") / 100,
-            "tocc_delta": number("TOCC Δ (pp)") / 100,
-            "new_borrowing": number("New borrowing ($mm)"),
-            "equity_raise": number("Equity raise ($mm)"),
-            "new_shares": number("New shares (mm)"),
-            "liquidation": bool(row.get("Liquidation") or False),
-            "liquidation_recovery_rate": number("Recovery (%)") / 100,
-        }
+        values = asdict(canonical[name])
+        values["probability"] = float(row.get("Probability (%)") or 0) / 100
+        scenarios[name] = values
     return scenarios
 
 
@@ -162,11 +141,8 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         auto_risk_free = st.checkbox("Estimate risk-free rate automatically", value=uploaded_defaults.get("risk_free_rate") is None)
         risk_free = None if auto_risk_free else st.number_input("Risk-free Rate", 0.0, 0.20, float(_default(uploaded_defaults, "risk_free_rate", 0.0445)), 0.0025, format="%.4f")
         market_premium = st.number_input("Market Risk Premium", 0.0, 0.20, float(_default(uploaded_defaults, "market_risk_premium", 0.0418)), 0.0025, format="%.4f")
-        auto_beta = st.checkbox("Estimate asset beta from peers", value=uploaded_defaults.get("selected_asset_beta") is None)
-        asset_beta = None if auto_beta else st.number_input("Selected Asset Beta", 0.05, 4.0, float(_default(uploaded_defaults, "selected_asset_beta", 1.0)), 0.05)
         debt_beta = st.number_input("Debt Beta", 0.0, 1.0, 0.15, 0.05)
-        peers_default = uploaded_defaults.get("peer_tickers") or ["TSLA", "GM", "F", "LCID"]
-        peers = st.text_input("Comparable Companies", value=", ".join(peers_default))
+        st.caption("Comparable companies are selected automatically from Yahoo Finance People Also Watch. Their adjusted asset betas are weighted by Yahoo's recommendation scores and used in TOCC.")
 
     with st.sidebar.expander("Financing and APV"):
         uploaded_policy = uploaded_defaults.get("debt_policy", "scheduled_amortization")
@@ -203,12 +179,12 @@ def _sidebar_inputs() -> tuple[bool, dict]:
     return run_clicked, {
         "ticker": ticker, "valuation_date": valuation_date, "forecast_years": forecast_years,
         "competitive_advantage_years": competitive_years, "currency": currency,
-        "peer_tickers": peers, "revenue_growth_start": revenue_growth,
+        "peer_tickers": None, "revenue_growth_start": revenue_growth,
         "terminal_growth_rate": terminal_growth, "terminal_ronic": terminal_ronic,
         "enforce_terminal_ronic_to_tocc": enforce_terminal,
         "ebit_margin_terminal": terminal_margin, "tax_rate": tax_rate,
         "risk_free_rate": risk_free, "market_risk_premium": market_premium,
-        "selected_asset_beta": asset_beta, "debt_beta": debt_beta,
+        "selected_asset_beta": None, "debt_beta": debt_beta,
         "debt_policy": DEBT_POLICIES[debt_label], "cash_tax_rate": cash_tax_rate,
         "interest_limit_percentage": interest_limit, "tax_shield_discount_rate": shield_rate,
         "minimum_cash": minimum_cash, "historical_upload": historical_upload,
@@ -275,9 +251,12 @@ def _render_tocc(result) -> None:
     c2.metric("Market Risk Premium", format_percentage(a["market_risk_premium"]))
     c3.metric("Selected Asset Beta", f"{a['selected_asset_beta']:.2f}x")
     c4.metric("Unlevered TOCC", format_percentage(s["tocc"]))
-    peers = pd.DataFrame(result.tocc_peers).rename(columns={"peer": "Peer", "equity_beta": "Equity Beta", "debt_beta": "Debt Beta", "debt": "Debt", "equity": "Equity", "raw_asset_beta": "Raw Asset Beta", "adjusted_asset_beta": "Adjusted Asset Beta", "weight": "Selected Weight"})
-    visible = ["Peer", "Equity Beta", "Debt Beta", "Debt", "Equity", "Raw Asset Beta", "Adjusted Asset Beta", "Selected Weight", "source"]
-    st.dataframe(_format_frame(peers[visible], ["Selected Weight"], ["Debt", "Equity"]), use_container_width=True, hide_index=True)
+    peers = pd.DataFrame(result.tocc_peers).rename(columns={"peer": "Peer", "company_name": "Company", "recommendation_score": "Yahoo Score", "equity_beta": "Equity Beta", "debt_beta": "Debt Beta", "debt": "Debt", "equity": "Market Equity", "raw_asset_beta": "Raw Asset Beta", "adjusted_asset_beta": "Adjusted Asset Beta", "weight": "Selected Weight"})
+    if peers.empty:
+        st.warning("Yahoo peer statistics were unavailable. The selected asset beta is the disclosed sector-beta fallback.")
+    else:
+        visible = ["Peer", "Company", "currency", "Yahoo Score", "Equity Beta", "Debt Beta", "Debt", "Market Equity", "Raw Asset Beta", "Adjusted Asset Beta", "Selected Weight", "source"]
+        st.dataframe(_format_frame(peers[visible], ["Selected Weight"], ["Debt", "Market Equity"]), use_container_width=True, hide_index=True)
 
 
 def _render_apv(result) -> None:
@@ -315,8 +294,8 @@ def _render_scenarios(result) -> None:
     st.metric("Probability-Weighted Intrinsic Value", format_currency(result.summary["probability_weighted_value"]))
     frame = pd.DataFrame(result.scenarios)
     st.subheader("Scenario Inputs Used")
-    input_columns = ["scenario", "probability", "revenue_growth_delta", "ebit_margin_delta", "capital_turnover_delta", "terminal_growth_delta", "tocc_delta", "new_borrowing", "equity_raise", "new_shares", "liquidation", "liquidation_recovery_rate"]
-    st.dataframe(_format_frame(frame[input_columns], ["probability", "revenue_growth_delta", "ebit_margin_delta", "terminal_growth_delta", "tocc_delta", "liquidation_recovery_rate"], ["new_borrowing", "equity_raise"]), use_container_width=True, hide_index=True)
+    input_columns = ["scenario", "probability"]
+    st.dataframe(_format_frame(frame[input_columns], ["probability"]), use_container_width=True, hide_index=True)
     st.subheader("Scenario Valuation Results")
     st.dataframe(_format_frame(frame[["scenario", "probability", "tocc", "terminal_growth", "terminal_ronic", "apv_enterprise_value", "equity_value", "diluted_shares", "intrinsic_value_per_share"]], ["probability", "tocc", "terminal_growth", "terminal_ronic"], ["apv_enterprise_value", "equity_value"]), use_container_width=True, hide_index=True)
     st.plotly_chart(scenario_chart(result.scenarios), use_container_width=True, key="scenario_values")
