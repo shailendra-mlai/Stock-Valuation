@@ -100,7 +100,7 @@ class ValuationAssumptions:
     risk_free_rate: float = 0.0425
     market_risk_premium: float = 0.045
     selected_asset_beta: float = 1.25
-    peer_tickers: list[str] = field(default_factory=lambda: ["TSLA", "GM", "F", "LCID"])
+    peer_tickers: list[str] = field(default_factory=list)
     terminal_growth_rate: float = 0.025
     terminal_ronic: float | None = None
     enforce_terminal_ronic_to_tocc: bool = True
@@ -118,10 +118,10 @@ class ValuationAssumptions:
     reconciliation_tolerance: float = 1e-6
     scenarios: dict[str, ScenarioAssumption] = field(
         default_factory=lambda: {
-            "failure": ScenarioAssumption(0.20, liquidation=True, liquidation_recovery_rate=0.25),
+            "failure": ScenarioAssumption(0.25, liquidation=True, liquidation_recovery_rate=0.25),
             "downside": ScenarioAssumption(0.25, -0.05, -0.04, -0.20, -0.005, 0.01),
-            "base": ScenarioAssumption(0.40),
-            "upside": ScenarioAssumption(0.15, 0.05, 0.04, 0.20, 0.005, -0.005),
+            "base": ScenarioAssumption(0.25),
+            "upside": ScenarioAssumption(0.25, 0.05, 0.04, 0.20, 0.005, -0.005),
         }
     )
 
@@ -183,7 +183,7 @@ class ValuationAssumptions:
             "enforce_terminal_ronic_to_tocc": terminal.get("enforce_ronic_equals_tocc", True),
             "risk_free_rate": tocc.get("risk_free_rate") or cls.risk_free_rate,
             "market_risk_premium": tocc.get("market_risk_premium", cls.market_risk_premium),
-            "peer_tickers": tocc.get("peer_tickers", ["TSLA", "GM", "F", "LCID"]),
+            "peer_tickers": [],
             "tax_rate": tax.get("normalized_operating_tax_rate", cls.tax_rate),
             "cash_tax_rate": tax.get("cash_tax_rate", cls.cash_tax_rate),
             "interest_limit_percentage": tax.get("interest_limit_percentage", cls.interest_limit_percentage),
@@ -196,8 +196,13 @@ class ValuationAssumptions:
         if ticker:
             mapped["ticker"] = ticker.upper()
         if scenario_raw:
+            fixed = cls().scenarios
             mapped["scenarios"] = {
-                name: ScenarioAssumption(**values) for name, values in scenario_raw.items()
+                name: ScenarioAssumption(**{
+                    **asdict(default),
+                    "probability": _probability((scenario_raw.get(name) or {}).get("probability", default.probability)),
+                })
+                for name, default in fixed.items()
             }
         allowed = set(cls.__dataclass_fields__)
         instance = cls(**{k: v for k, v in mapped.items() if k in allowed})

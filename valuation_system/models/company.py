@@ -69,6 +69,7 @@ class CompanyData:
     pension_liability: float = 0.0
     non_operating_investments: float = 0.0
     restricted_cash: float = 0.0
+    comparables: list[dict[str, Any]] = field(default_factory=list)
     provenance: list[ProvenanceRecord] = field(default_factory=list)
 
     @property
