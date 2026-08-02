@@ -130,6 +130,25 @@ def test_integration_mock_company():
     assert abs(sum(s["probability"] for s in result.scenarios) - 1) < 1e-9
     assert abs(result.summary["apv_enterprise_value"] - result.summary["operating_enterprise_value"] - result.summary["pv_financing_effects"]) < 1e-6
     assert all(s["equity_value"] >= 0 for s in result.scenarios)
+    liquidity = next(check for check in result.checks if check.category == "Liquidity")
+    assert liquidity.status == "WARNING"
+    assert result.summary["minimum_external_funding"] == pytest.approx(result.summary["liquidity_shortfall"])
+    assert result.summary["first_liquidity_breach_year"] == 2027
+    assert "not a model-integrity failure" in liquidity.notes
+    bridge = next(check for check in result.checks if check.name == "Equity bridge reconciles")
+    assert bridge.status == "PASS"
+    assert "limited liability" in bridge.notes
+    assert result.summary["overall_model_status"] == "WARNING"
+
+
+def test_liquidity_check_passes_when_cash_covers_forecast():
+    company = load_company_data("RIVN")
+    company.latest.cash = 100_000.0
+    result = run_valuation(company, ValuationAssumptions())
+    liquidity = next(check for check in result.checks if check.category == "Liquidity")
+    assert liquidity.status == "PASS"
+    assert result.summary["minimum_external_funding"] == 0
+    assert result.summary["first_liquidity_breach_year"] is None
 
 
 def test_scenario_specific_dilution_and_liquidation_floor():
