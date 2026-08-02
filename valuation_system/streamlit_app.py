@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -181,6 +182,19 @@ def _sidebar_inputs() -> tuple[bool, dict]:
     scenarios = _scenario_editor(uploaded_defaults)
 
     historical_upload = st.sidebar.file_uploader("Upload Historical Financial Data", type=["csv", "xlsx", "xls"])
+    configured_sec_agent = os.getenv("SEC_USER_AGENT", "").strip()
+    sec_user_agent = configured_sec_agent or None
+    if historical_upload is None:
+        if configured_sec_agent:
+            st.sidebar.caption("SEC Company Facts download is configured for this deployment.")
+        else:
+            sec_email = st.sidebar.text_input(
+                "SEC Request Contact Email",
+                help="SEC requires automated requests to identify the application and a contact email. The address is sent only in the SEC request header.",
+            ).strip()
+            sec_user_agent = f"Stock-Valuation {sec_email}" if sec_email else None
+            if not sec_email:
+                st.sidebar.warning("Enter a contact email to download financial statements from SEC, or upload historical data.")
     allow_financial = st.sidebar.checkbox("Allow financial-company override", value=False)
     run_clicked = st.sidebar.button("Run Valuation", type="primary", use_container_width=True)
     if st.sidebar.button("Clear Results", use_container_width=True):
@@ -199,6 +213,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         "interest_limit_percentage": interest_limit, "tax_shield_discount_rate": shield_rate,
         "minimum_cash": minimum_cash, "historical_upload": historical_upload,
         "allow_financial_company": allow_financial, "scenarios": scenarios,
+        "sec_user_agent": sec_user_agent,
     }
 
 
@@ -217,6 +232,7 @@ def _render_summary(result) -> None:
 
 
 def _render_historical(result) -> None:
+    st.caption("Historical analysis uses the latest five comparable fiscal years. When no file is uploaded, annual statements are downloaded from SEC Company Facts.")
     columns = ["year", "revenue", "revenue_growth", "ebit", "ebit_margin", "nopat", "operating_invested_capital", "roic", "tocc", "roic_spread", "economic_profit", "fcf"]
     frame = pd.DataFrame(result.historical)
     frame["revenue_growth"] = frame["revenue"].pct_change()
@@ -363,7 +379,7 @@ def main() -> None:
             progress.empty()
             message = str(exc)
             if "No offline sample data" in message or "period" in message.lower():
-                message = "The company’s historical operating data could not be retrieved. Upload a normalized historical-data file or try again later."
+                message = "Five-year historical operating data could not be retrieved from SEC Company Facts. Upload a normalized historical-data file or try again later."
             st.error(f"Valuation could not be completed: {message}")
 
     result = st.session_state.valuation_results

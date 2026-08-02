@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--forecast-years", type=int, default=10)
     parser.add_argument("--assumptions")
     parser.add_argument("--data-file")
+    parser.add_argument("--sec-user-agent", help="SEC-compliant application name and contact email; defaults to SEC_USER_AGENT")
     parser.add_argument("--output", default="./output")
     parser.add_argument("--live", action="store_true", help="Attempt live retrieval, then fail back to auditable offline data")
     parser.add_argument("--allow-financial-company", action="store_true")
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         assumptions.market_price_override = args.market_price_override
     apply_scenario_overrides(assumptions, args.scenario, args.scenario_probability)
     assumptions.validate()
-    company = load_company_data(args.ticker, args.data_file, args.live)
+    company = load_company_data(args.ticker, args.data_file, args.live, args.sec_user_agent)
     if assumptions.market_price_override is not None:
         company.share_price = assumptions.market_price_override
     result = run_valuation(company, assumptions)
