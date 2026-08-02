@@ -95,7 +95,7 @@ APV enterprise value is adjusted for gross debt, other financing claims, excess 
 
 ## 14. Market-price comparison
 
-Illustrative market price: {_money(s['market_price'])}. Intrinsic value differs by {_pct(s['premium_discount'])}. This comparison is meaningful only after the market price and share count are refreshed to compatible dates.
+Market price: {_money(s['market_price'])}. Market capitalization: {_money(s.get('market_cap'))}. Intrinsic value differs by {_pct(s['premium_discount'])}. This comparison is meaningful only after the market price and share count are refreshed to compatible dates.
 
 ## 15. Scenario and sensitivity analysis
 
