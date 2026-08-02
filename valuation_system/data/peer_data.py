@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Any, Callable
+
+import requests
+
+from valuation_system.analysis.calculations import asset_beta
+from valuation_system.models.company import CompanyData, ProvenanceRecord
+
+
+YAHOO_RECOMMENDATIONS_URL = "https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
+YAHOO_QUOTE_URL = "https://finance.yahoo.com/quote/{ticker}/"
+USER_AGENT = "Mozilla/5.0 (compatible; Stock-Valuation/1.0)"
+
+
+def discover_yahoo_comparables(
+    ticker: str,
+    limit: int = 4,
+    *,
+    request_get: Callable[..., Any] = requests.get,
+) -> list[dict[str, Any]]:
+    """Return Yahoo Finance 'People Also Watch' symbols and relevance scores."""
+    symbol = ticker.upper().strip()
+    response = request_get(
+        YAHOO_RECOMMENDATIONS_URL.format(ticker=symbol),
+        headers={"User-Agent": USER_AGENT},
+        timeout=12,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    results = ((payload.get("finance") or {}).get("result") or [])
+    recommendations = results[0].get("recommendedSymbols", []) if results else []
+    output: list[dict[str, Any]] = []
+    seen = {symbol}
+    for item in recommendations:
+        peer = str(item.get("symbol") or "").upper().strip()
+        if not peer or peer in seen:
+            continue
+        seen.add(peer)
+        output.append({"peer": peer, "recommendation_score": float(item.get("score") or 0)})
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _default_info_loader(ticker: str) -> dict[str, Any]:
+    import yfinance as yf
+
+    return yf.Ticker(ticker).get_info()
+
+
+def load_yahoo_peer_data(
+    ticker: str,
+    debt_beta: float = 0.15,
+    limit: int = 4,
+    *,
+    request_get: Callable[..., Any] = requests.get,
+    info_loader: Callable[[str], dict[str, Any]] = _default_info_loader,
+) -> list[dict[str, Any]]:
+    """Build a sourced peer-beta table from Yahoo related symbols and quote statistics."""
+    recommendations = discover_yahoo_comparables(ticker, limit, request_get=request_get)
+    rows: list[dict[str, Any]] = []
+    for item in recommendations:
+        try:
+            info = info_loader(item["peer"]) or {}
+            if info.get("quoteType") not in (None, "EQUITY"):
+                continue
+            quote_currency = info.get("currency")
+            financial_currency = info.get("financialCurrency")
+            if quote_currency and financial_currency and quote_currency != financial_currency:
+                continue
+            equity_beta = float(info["beta"])
+            equity = float(info["marketCap"]) / 1_000_000
+            debt = max(0.0, float(info.get("totalDebt") or 0) / 1_000_000)
+            if equity <= 0:
+                continue
+        except Exception:
+            continue
+        raw_beta = asset_beta(equity_beta, equity, debt_beta, debt)
+        rows.append({
+            "peer": item["peer"],
+            "company_name": info.get("shortName") or info.get("longName") or item["peer"],
+            "equity_beta": equity_beta,
+            "equity": equity,
+            "debt": debt,
+            "debt_beta": debt_beta,
+            "raw_asset_beta": raw_beta,
+            "adjusted_asset_beta": 0.67 * raw_beta + 0.33,
+            "recommendation_score": item["recommendation_score"],
+            "currency": quote_currency or financial_currency or "Unknown",
+            "source": "Yahoo Finance People Also Watch and quote statistics",
+        })
+    score_total = sum(max(0.0, row["recommendation_score"]) for row in rows)
+    for row in rows:
+        row["weight"] = (
+            max(0.0, row["recommendation_score"]) / score_total
+            if score_total > 0 else 1 / len(rows)
+        )
+    return rows
+
+
+def selected_peer_beta(rows: list[dict[str, Any]]) -> float | None:
+    usable = [row for row in rows if row.get("adjusted_asset_beta") is not None]
+    if not usable:
+        return None
+    weight_total = sum(float(row.get("weight") or 0) for row in usable)
+    if weight_total <= 0:
+        return sum(float(row["adjusted_asset_beta"]) for row in usable) / len(usable)
+    return sum(float(row["adjusted_asset_beta"]) * float(row.get("weight") or 0) for row in usable) / weight_total
+
+
+def attach_yahoo_comparables(
+    company: CompanyData,
+    debt_beta: float = 0.15,
+    *,
+    loader: Callable[..., list[dict[str, Any]]] = load_yahoo_peer_data,
+) -> list[dict[str, Any]]:
+    """Attach automatic comparable data without making provider failure fatal."""
+    try:
+        rows = loader(company.ticker, debt_beta=debt_beta)
+    except Exception:
+        rows = []
+    company.comparables = rows
+    company.provenance.append(ProvenanceRecord(
+        variable="comparable_companies",
+        value=[row["peer"] for row in rows],
+        source=YAHOO_QUOTE_URL.format(ticker=company.ticker),
+        source_date=date.today().isoformat(),
+        retrieval_method="Yahoo Finance People Also Watch plus peer quote statistics",
+        original_unit="mixed market data",
+        normalized_unit="USD millions and beta",
+        confidence="medium" if rows else "low",
+        notes=(
+            "Recommendation-score-weighted adjusted asset beta is used in TOCC."
+            if rows else "Yahoo peer data unavailable; the disclosed sector-beta fallback is used."
+        ),
+    ))
+    return rows
