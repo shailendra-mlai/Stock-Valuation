@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import json
+import logging
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+from valuation_system.ui.charts import (
+    combined_chart, historical_chart, roic_ronic_chart, scenario_chart,
+    sensitivity_heatmap, valuation_waterfall,
+)
+from valuation_system.ui.components import (
+    DEBT_POLICIES, build_valuation_config, flatten_uploaded_assumptions,
+    parse_assumptions_upload, render_downloads, render_metric_cards,
+    render_overall_status, run_company_valuation, valuation_bridge_rows,
+)
+from valuation_system.ui.formatting import (
+    format_currency, format_large_currency, format_percentage,
+)
+from valuation_system.ui.session_state import clear_results, initialize_session_state, store_artifacts
+
+
+logger = logging.getLogger(__name__)
+
+
+def _display_value(value):
+    if value is None:
+        return "—"
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, default=str, sort_keys=True)
+    return str(value)
+
+
+def _default(uploaded: dict, key: str, fallback):
+    value = uploaded.get(key)
+    return fallback if value is None else value
+
+
+def _persist_historical_upload(uploaded_file) -> str | None:
+    if uploaded_file is None:
+        return None
+    target_dir = Path("valuation_system/output/uploads")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(uploaded_file.name).suffix.lower()
+    target = target_dir / uploaded_file.name
+    if suffix == ".csv":
+        target.write_bytes(uploaded_file.getvalue())
+        return str(target)
+    if suffix in {".xlsx", ".xls"}:
+        frame = pd.read_excel(uploaded_file)
+        csv_target = target.with_suffix(".csv")
+        frame.to_csv(csv_target, index=False)
+        return str(csv_target)
+    raise ValueError("Historical data must be uploaded as CSV or Excel.")
+
+
+def _format_frame(frame: pd.DataFrame, percent_columns: list[str] | None = None, money_columns: list[str] | None = None):
+    percent_columns = [column for column in (percent_columns or []) if column in frame]
+    money_columns = [column for column in (money_columns or []) if column in frame]
+    formats = {column: "{:.1%}" for column in percent_columns}
+    formats.update({column: "{:,.1f}" for column in money_columns})
+    return frame.style.format(formats, na_rep="—")
+
+
+def _sidebar_inputs() -> tuple[bool, dict]:
+    st.sidebar.header("Valuation Inputs")
+    uploaded_assumptions = st.sidebar.file_uploader("Upload Assumptions File", type=["yaml", "yml", "json"])
+    uploaded_defaults: dict = {}
+    if uploaded_assumptions:
+        try:
+            raw = parse_assumptions_upload(uploaded_assumptions.getvalue(), uploaded_assumptions.name)
+            uploaded_defaults = {k: v for k, v in flatten_uploaded_assumptions(raw).items() if v is not None}
+            st.sidebar.success("Loaded: " + ", ".join(sorted(uploaded_defaults)))
+        except Exception as exc:
+            st.sidebar.error(f"Could not read assumptions: {exc}")
+
+    ticker = st.sidebar.text_input("Ticker", value=str(_default(uploaded_defaults, "ticker", "RIVN"))).upper().strip()
+    valuation_default = pd.to_datetime(_default(uploaded_defaults, "valuation_date", date.today())).date()
+    valuation_date = st.sidebar.date_input("Valuation Date", value=valuation_default)
+    forecast_years = st.sidebar.slider("Explicit Forecast Period", 5, 15, int(_default(uploaded_defaults, "forecast_years", 10)))
+    competitive_years = st.sidebar.slider("Competitive-Advantage Fade", 0, 20, int(_default(uploaded_defaults, "competitive_advantage_years", 10)))
+    currencies = ["USD", "EUR", "GBP", "JPY", "CAD"]
+    currency_default = str(_default(uploaded_defaults, "currency", "USD"))
+    currency = st.sidebar.selectbox("Reporting Currency", currencies, index=currencies.index(currency_default) if currency_default in currencies else 0)
+
+    with st.sidebar.expander("Forecast Assumptions", expanded=True):
+        estimate_growth = st.checkbox("Estimate base revenue growth automatically", value=uploaded_defaults.get("revenue_growth_start") is None)
+        revenue_growth = None if estimate_growth else st.number_input("Base Revenue Growth", -0.50, 1.00, float(_default(uploaded_defaults, "revenue_growth_start", 0.10)), 0.01, format="%.3f")
+        terminal_growth = st.number_input("Terminal Growth Rate", -0.05, 0.10, float(_default(uploaded_defaults, "terminal_growth_rate", 0.025)), 0.005, format="%.3f")
+        enforce_terminal = st.checkbox("Enforce terminal RONIC = TOCC", value=bool(_default(uploaded_defaults, "enforce_terminal_ronic_to_tocc", True)))
+        terminal_ronic = None if enforce_terminal else st.number_input("Terminal RONIC", 0.01, 0.50, float(_default(uploaded_defaults, "terminal_ronic", 0.10)), 0.01, format="%.3f")
+        estimate_margin = st.checkbox("Estimate normalized EBIT margin automatically", value=uploaded_defaults.get("ebit_margin_terminal") is None)
+        terminal_margin = None if estimate_margin else st.number_input("Normalized EBIT Margin", -0.50, 0.60, float(_default(uploaded_defaults, "ebit_margin_terminal", 0.10)), 0.01, format="%.3f")
+        tax_rate = st.number_input("Normalized Operating Tax Rate", 0.0, 0.50, float(_default(uploaded_defaults, "tax_rate", 0.21)), 0.01, format="%.3f")
+
+    with st.sidebar.expander("TOCC Assumptions"):
+        auto_risk_free = st.checkbox("Estimate risk-free rate automatically", value=uploaded_defaults.get("risk_free_rate") is None)
+        risk_free = None if auto_risk_free else st.number_input("Risk-free Rate", 0.0, 0.20, float(_default(uploaded_defaults, "risk_free_rate", 0.0445)), 0.0025, format="%.4f")
+        market_premium = st.number_input("Market Risk Premium", 0.0, 0.20, float(_default(uploaded_defaults, "market_risk_premium", 0.0418)), 0.0025, format="%.4f")
+        auto_beta = st.checkbox("Estimate asset beta from peers", value=uploaded_defaults.get("selected_asset_beta") is None)
+        asset_beta = None if auto_beta else st.number_input("Selected Asset Beta", 0.05, 4.0, float(_default(uploaded_defaults, "selected_asset_beta", 1.0)), 0.05)
+        debt_beta = st.number_input("Debt Beta", 0.0, 1.0, 0.15, 0.05)
+        peers_default = uploaded_defaults.get("peer_tickers") or ["TSLA", "GM", "F", "LCID"]
+        peers = st.text_input("Comparable Companies", value=", ".join(peers_default))
+
+    with st.sidebar.expander("Financing and APV"):
+        uploaded_policy = uploaded_defaults.get("debt_policy", "scheduled_amortization")
+        labels = list(DEBT_POLICIES)
+        default_label = next((label for label, value in DEBT_POLICIES.items() if value == uploaded_policy), "Scheduled amortization")
+        debt_label = st.selectbox("Debt Policy", labels, index=labels.index(default_label))
+        cash_tax_rate = st.number_input("Cash Tax Rate", 0.0, 0.50, float(_default(uploaded_defaults, "cash_tax_rate", 0.21)), 0.01, format="%.3f")
+        interest_limit = st.number_input("Interest Deduction Limitation (% ATI)", 0.0, 1.0, float(_default(uploaded_defaults, "interest_limit_percentage", 0.30)), 0.05, format="%.2f")
+        auto_shield_rate = st.checkbox("Use TOCC for tax-shield discount rate", value=True)
+        shield_rate = None if auto_shield_rate else st.number_input("Tax-Shield Discount Rate", 0.0, 0.30, 0.09, 0.005, format="%.3f")
+        minimum_cash = st.number_input("Minimum Operating Cash ($mm)", 0.0, value=float(_default(uploaded_defaults, "minimum_cash", 500.0)), step=100.0)
+
+    historical_upload = st.sidebar.file_uploader("Upload Historical Financial Data", type=["csv", "xlsx", "xls"])
+    allow_financial = st.sidebar.checkbox("Allow financial-company override", value=False)
+    run_clicked = st.sidebar.button("Run Valuation", type="primary", use_container_width=True)
+    if st.sidebar.button("Clear Results", use_container_width=True):
+        clear_results(st.session_state)
+        st.rerun()
+    return run_clicked, {
+        "ticker": ticker, "valuation_date": valuation_date, "forecast_years": forecast_years,
+        "competitive_advantage_years": competitive_years, "currency": currency,
+        "peer_tickers": peers, "revenue_growth_start": revenue_growth,
+        "terminal_growth_rate": terminal_growth, "terminal_ronic": terminal_ronic,
+        "enforce_terminal_ronic_to_tocc": enforce_terminal,
+        "ebit_margin_terminal": terminal_margin, "tax_rate": tax_rate,
+        "risk_free_rate": risk_free, "market_risk_premium": market_premium,
+        "selected_asset_beta": asset_beta, "debt_beta": debt_beta,
+        "debt_policy": DEBT_POLICIES[debt_label], "cash_tax_rate": cash_tax_rate,
+        "interest_limit_percentage": interest_limit, "tax_shield_discount_rate": shield_rate,
+        "minimum_cash": minimum_cash, "historical_upload": historical_upload,
+        "allow_financial_company": allow_financial,
+    }
+
+
+def _render_summary(result) -> None:
+    render_metric_cards(result)
+    st.caption("Positive premium/(discount) means intrinsic value is above market price; negative means it is below market price. This is not a buy/sell recommendation.")
+    render_overall_status(result.summary["overall_model_status"])
+    left, right = st.columns([1, 1.25])
+    with left:
+        st.subheader("Valuation Bridge")
+        st.dataframe(pd.DataFrame(valuation_bridge_rows(result)), hide_index=True, use_container_width=True)
+    with right:
+        st.plotly_chart(valuation_waterfall(result.summary), use_container_width=True, key="summary_waterfall")
+    st.subheader("Downloads")
+    render_downloads({"excel": st.session_state.excel_path, "report": st.session_state.report_path, "assumptions": st.session_state.assumptions_path, "source": st.session_state.source_data_path}, result.ticker, key_prefix="summary")
+
+
+def _render_historical(result) -> None:
+    columns = ["year", "revenue", "revenue_growth", "ebit", "ebit_margin", "nopat", "operating_invested_capital", "roic", "tocc", "roic_spread", "economic_profit", "fcf"]
+    frame = pd.DataFrame(result.historical)
+    frame["revenue_growth"] = frame["revenue"].pct_change()
+    st.dataframe(_format_frame(frame[columns], ["revenue_growth", "ebit_margin", "roic", "tocc", "roic_spread"], ["revenue", "ebit", "nopat", "operating_invested_capital", "economic_profit", "fcf"]), use_container_width=True, hide_index=True)
+    c1, c2 = st.columns(2)
+    c1.plotly_chart(historical_chart(result.historical, "revenue", "Revenue History"), use_container_width=True, key="historical_revenue")
+    c2.plotly_chart(historical_chart(result.historical, "ebit_margin", "EBIT Margin", True), use_container_width=True, key="historical_margin")
+    c3, c4 = st.columns(2)
+    c3.plotly_chart(historical_chart(result.historical, "roic", "Historical ROIC", True), use_container_width=True, key="historical_roic")
+    c4.plotly_chart(historical_chart(result.historical, "fcf", "Historical Free Cash Flow"), use_container_width=True, key="historical_fcf")
+
+
+def _render_roic_tree(result) -> None:
+    frame = pd.DataFrame(result.historical)[["year", "roic", "ebit_margin", "tax_efficiency", "capital_turnover", "roic_spread", "economic_profit"]]
+    st.latex(r"ROIC = EBIT\ Margin \times Tax\ Efficiency \times Capital\ Turnover")
+    st.dataframe(_format_frame(frame, ["roic", "ebit_margin", "tax_efficiency", "roic_spread"], ["economic_profit"]), use_container_width=True, hide_index=True)
+    check = next((row for row in result.checks if row.name == "ROIC tree reconciliation"), None)
+    if check and check.status == "PASS":
+        st.success("ROIC tree reconciliation: PASS")
+    elif check:
+        st.warning(f"ROIC tree reconciliation: {check.status}")
+
+
+def _render_forecast(result) -> None:
+    frame = pd.DataFrame(result.forecast + result.overperformance)
+    columns = ["year", "phase", "revenue", "revenue_growth", "ebit_margin", "nopat", "invested_capital", "net_investment", "roic", "ronic", "fcf", "discount_factor", "pv_fcf"]
+    st.dataframe(_format_frame(frame[columns], ["revenue_growth", "ebit_margin", "roic", "ronic", "discount_factor"], ["revenue", "nopat", "invested_capital", "net_investment", "fcf", "pv_fcf"]), use_container_width=True, hide_index=True)
+    c1, c2 = st.columns(2)
+    c1.plotly_chart(combined_chart(result, "revenue", "Historical and Forecast Revenue"), use_container_width=True, key="forecast_revenue")
+    c2.plotly_chart(combined_chart(result, "ebit_margin", "Historical and Forecast EBIT Margin", True), use_container_width=True, key="forecast_margin")
+    c3, c4 = st.columns(2)
+    c3.plotly_chart(combined_chart(result, "fcf", "Free Cash Flow"), use_container_width=True, key="forecast_fcf")
+    c4.plotly_chart(roic_ronic_chart(result), use_container_width=True, key="forecast_returns")
+
+
+def _render_tocc(result) -> None:
+    s, a = result.summary, result.assumptions
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Risk-free Rate", format_percentage(a["risk_free_rate"]))
+    c2.metric("Market Risk Premium", format_percentage(a["market_risk_premium"]))
+    c3.metric("Selected Asset Beta", f"{a['selected_asset_beta']:.2f}x")
+    c4.metric("Unlevered TOCC", format_percentage(s["tocc"]))
+    peers = pd.DataFrame(result.tocc_peers).rename(columns={"peer": "Peer", "equity_beta": "Equity Beta", "debt_beta": "Debt Beta", "debt": "Debt", "equity": "Equity", "raw_asset_beta": "Raw Asset Beta", "adjusted_asset_beta": "Adjusted Asset Beta", "weight": "Selected Weight"})
+    visible = ["Peer", "Equity Beta", "Debt Beta", "Debt", "Equity", "Raw Asset Beta", "Adjusted Asset Beta", "Selected Weight", "source"]
+    st.dataframe(_format_frame(peers[visible], ["Selected Weight"], ["Debt", "Equity"]), use_container_width=True, hide_index=True)
+
+
+def _render_apv(result) -> None:
+    s = result.summary
+    st.subheader("APV and Equity Bridge")
+    st.dataframe(pd.DataFrame(valuation_bridge_rows(result)), use_container_width=True, hide_index=True)
+    st.plotly_chart(valuation_waterfall(s), use_container_width=True, key="apv_waterfall")
+    st.subheader("Continuing Value")
+    continuing = pd.DataFrame([
+        ["Final fade-period NOPAT", s["terminal_nopat"]], ["Next-year NOPAT", s["terminal_nopat_next"]],
+        ["Terminal growth", s["terminal_growth"]], ["Terminal RONIC", s["terminal_ronic"]],
+        ["Reinvestment rate", s["terminal_reinvestment_rate"]], ["Terminal FCF", s["terminal_fcf"]],
+        ["Continuing value", s["continuing_value_at_terminal"]], ["PV continuing value", s["pv_continuing_value"]],
+        ["PV continuing value / APV EV", s["continuing_value_share"]],
+    ], columns=["Metric", "Value"])
+    st.dataframe(continuing, use_container_width=True, hide_index=True)
+    for check in result.checks:
+        if check.category == "Continuing value" and check.status != "PASS":
+            st.warning(f"{check.name}: {check.notes or check.status}")
+    st.subheader("Financing Effects")
+    first = result.tax_shield[0] if result.tax_shield else {}
+    financing = pd.DataFrame([
+        ["Interest expense — Year 1", first.get("interest")], ["ATI — Year 1", first.get("ati")],
+        ["ATI deduction limit", first.get("limit")], ["Deductible interest", first.get("deductible_interest")],
+        ["Cash tax rate", first.get("cash_tax_rate")], ["Usable interest tax shield", first.get("usable_tax_shield")],
+        ["PV explicit tax shields", s["pv_explicit_tax_shields"]], ["PV continuing tax shield", s["pv_continuing_tax_shield"]],
+        ["Ending interest carryforward", first.get("ending_carryforward")],
+    ], columns=["Metric", "Value"])
+    st.dataframe(financing, use_container_width=True, hide_index=True)
+    st.latex(r"Usable\ Tax\ Shield = Cash\ Tax\ Rate \times \min(Interest,\ 30\% \times ATI)")
+    st.caption("The engine further constrains this simplified formula through parallel NOL and interest-carryforward schedules.")
+
+
+def _render_scenarios(result) -> None:
+    st.metric("Probability-Weighted Intrinsic Value", format_currency(result.summary["probability_weighted_value"]))
+    frame = pd.DataFrame(result.scenarios)
+    st.dataframe(_format_frame(frame[["scenario", "probability", "tocc", "terminal_growth", "terminal_ronic", "apv_enterprise_value", "equity_value", "diluted_shares", "intrinsic_value_per_share"]], ["probability", "tocc", "terminal_growth", "terminal_ronic"], ["apv_enterprise_value", "equity_value"]), use_container_width=True, hide_index=True)
+    st.plotly_chart(scenario_chart(result.scenarios), use_container_width=True, key="scenario_values")
+    scenario_tabs = st.tabs([row["scenario"] for row in result.scenarios])
+    for tab, row in zip(scenario_tabs, result.scenarios):
+        with tab:
+            cols = st.columns(4)
+            cols[0].metric("Probability", format_percentage(row["probability"]))
+            cols[1].metric("TOCC", format_percentage(row["tocc"]))
+            cols[2].metric("Terminal Growth", format_percentage(row["terminal_growth"]))
+            cols[3].metric("Intrinsic Value / Share", format_currency(row["intrinsic_value_per_share"]))
+            st.write("Liquidation scenario" if row.get("liquidation") else "Going-concern scenario")
+
+
+def _render_sensitivity(result) -> None:
+    growth_table, growth_chart = sensitivity_heatmap(result.sensitivities["tocc_vs_growth"], "terminal_growth", "TOCC versus Terminal Growth")
+    st.plotly_chart(growth_chart, use_container_width=True, key="sensitivity_growth")
+    st.dataframe(growth_table.style.format("${:,.2f}", na_rep="—"), use_container_width=True)
+    ronic_table, ronic_chart = sensitivity_heatmap(result.sensitivities["tocc_vs_ronic"], "terminal_ronic", "TOCC versus Terminal RONIC")
+    st.plotly_chart(ronic_chart, use_container_width=True, key="sensitivity_ronic")
+    st.dataframe(ronic_table.style.format("${:,.2f}", na_rep="—"), use_container_width=True)
+    st.caption("The base case locks terminal RONIC to TOCC; the second table is a diagnostic departure from that steady-state discipline.")
+
+
+def _render_checks(result) -> None:
+    render_overall_status(result.summary["overall_model_status"])
+    frame = pd.DataFrame([{"Category": row.category, "Check": row.name, "Status": row.status, "Observed Value": _display_value(row.actual), "Expected Condition": _display_value(row.expected), "Explanation": row.notes} for row in result.checks])
+    st.dataframe(frame, use_container_width=True, hide_index=True)
+
+
+def main() -> None:
+    st.set_page_config(page_title="Public Company Valuation", page_icon="📊", layout="wide")
+    initialize_session_state(st.session_state)
+    st.markdown("""
+        <style>
+        .block-container {padding-top: 1.7rem; padding-bottom: 3rem;}
+        [data-testid="stMetric"] {background: #f7f9fb; border: 1px solid #d9e2f3; padding: 14px; border-radius: 8px;}
+        h1, h2, h3 {color: #17365d;}
+        </style>
+    """, unsafe_allow_html=True)
+    st.title("Public Company Valuation")
+    st.subheader("Assumption-Free Corporate Valuation Framework")
+    st.write("Analyze historical performance, forecast future free cash flow, estimate the True Opportunity Cost of Capital, calculate continuing value, and complete an Adjusted Present Value valuation.")
+
+    run_clicked, values = _sidebar_inputs()
+    if run_clicked:
+        progress = st.progress(5, text="Validating inputs…")
+        try:
+            data_file = _persist_historical_upload(values.pop("historical_upload"))
+            config = build_valuation_config(**values, data_file=data_file)
+            progress.progress(25, text=f"Loading operating data for {config.ticker}…")
+            with st.spinner(f"Running valuation for {config.ticker}…"):
+                artifacts = run_company_valuation(config)
+            progress.progress(90, text="Preparing workbook and report downloads…")
+            store_artifacts(st.session_state, artifacts)
+            progress.progress(100, text="Valuation complete")
+            st.success(f"Valuation completed for {config.ticker}.")
+        except Exception as exc:
+            logger.exception("Valuation failed")
+            progress.empty()
+            message = str(exc)
+            if "No offline sample data" in message or "period" in message.lower():
+                message = "The company’s historical operating data could not be retrieved. Upload a normalized historical-data file or try again later."
+            st.error(f"Valuation could not be completed: {message}")
+
+    result = st.session_state.valuation_results
+    if result is None:
+        st.info("Enter a ticker and assumptions in the sidebar, then select **Run Valuation**. The included RIVN sample works without a network connection.")
+        return
+
+    st.caption(f"Last run: {st.session_state.last_run_timestamp} | Ticker: {result.ticker} | Values in {result.company['currency']} millions unless noted")
+    tabs = st.tabs(["Summary", "Historical Analysis", "ROIC Tree", "Forecast", "TOCC", "APV and Equity Bridge", "Scenarios", "Sensitivity", "Model Checks", "Data Sources"])
+    with tabs[0]: _render_summary(result)
+    with tabs[1]: _render_historical(result)
+    with tabs[2]: _render_roic_tree(result)
+    with tabs[3]: _render_forecast(result)
+    with tabs[4]: _render_tocc(result)
+    with tabs[5]: _render_apv(result)
+    with tabs[6]: _render_scenarios(result)
+    with tabs[7]: _render_sensitivity(result)
+    with tabs[8]: _render_checks(result)
+    with tabs[9]:
+        provenance = [{key: _display_value(value) for key, value in row.items()} for row in result.provenance]
+        st.dataframe(pd.DataFrame(provenance), use_container_width=True, hide_index=True)
+        render_downloads({"excel": st.session_state.excel_path, "report": st.session_state.report_path, "assumptions": st.session_state.assumptions_path, "source": st.session_state.source_data_path}, result.ticker, key_prefix="sources")
+
+
+if __name__ == "__main__":
+    main()
