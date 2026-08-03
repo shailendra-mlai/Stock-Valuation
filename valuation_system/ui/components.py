@@ -108,7 +108,7 @@ def parse_optional_float(value: Any) -> float | None:
 
 def validate_terminal_growth(terminal_growth: float, tocc: float | None) -> None:
     if tocc is not None and terminal_growth >= tocc:
-        raise ValueError("Terminal growth must be below the True Opportunity Cost of Capital.")
+        raise ValueError("Terminal growth must be below TOCC (The Opportunity Cost of Capital).")
 
 
 def validate_scenario_probabilities(scenarios: dict[str, Any]) -> None:

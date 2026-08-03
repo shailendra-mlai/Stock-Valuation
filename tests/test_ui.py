@@ -38,7 +38,7 @@ def test_blank_optional_input_handling():
 
 def test_terminal_growth_validation():
     validate_terminal_growth(0.025, 0.09)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="The Opportunity Cost of Capital"):
         validate_terminal_growth(0.09, 0.09)
 
 
