@@ -294,7 +294,9 @@ def run_company_valuation(
 ) -> ValuationArtifacts:
     company = company_loader(config.ticker, config.data_file, config.data_file is None, config.sec_user_agent)
     company.currency = config.currency
-    attach_yahoo_comparables(company, config.debt_beta, loader=peer_loader)
+    attach_yahoo_comparables(
+        company, config.debt_beta, config.peer_tickers, loader=peer_loader,
+    )
     if config.market_price_override is not None:
         company.share_price = config.market_price_override
     assumptions = _assumptions_from_company(company, config)
