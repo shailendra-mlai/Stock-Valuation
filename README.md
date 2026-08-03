@@ -114,7 +114,7 @@ python company_analysis.py \
   --output ./output
 ```
 
-Comparable companies are selected automatically from Yahoo Finance's **People Also Watch** list. The script retrieves each usable peer's equity beta, market capitalization, and debt from Yahoo quote statistics, un-levers the beta, applies the standard one-third adjustment toward 1.0, and uses Yahoo's recommendation scores as weights. The resulting adjusted asset beta drives TOCC. If usable Yahoo peer statistics are unavailable, the output discloses and uses a sector-beta fallback.
+Comparable companies can be supplied as comma-separated ticker symbols in the Streamlit **Comparable Companies (optional override)** input or through `tocc.peer_tickers` in an assumptions file. A supplied set is used in the entered order and equal-weighted. When the input is blank, peers are selected automatically from Yahoo Finance's **People Also Watch** list and weighted using Yahoo's recommendation scores. The script retrieves each usable peer's equity beta, market capitalization, debt, and annual statements, un-levers the beta, and applies the standard one-third adjustment toward 1.0. The resulting adjusted asset beta drives TOCC and the same peer set populates the comparable ROIC tree. If usable Yahoo peer statistics are unavailable, the output discloses and uses a sector-beta fallback.
 - `<TICKER>_Valuation_<YYYYMMDD>.json`
 
 The Excel workbook follows the expanded course-framework architecture: historical diagnosis, reclassification, ROIC tree, value drivers, explicit forecast, competitive-advantage fade, working capital, fixed assets, free cash flow, TOCC, debt, liquidity, parallel NOL/interest tax shields, continuing value, APV, equity bridge, scenarios, sensitivities, model checks, and dashboard.
