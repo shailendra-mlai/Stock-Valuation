@@ -120,6 +120,14 @@ def _sidebar_inputs() -> tuple[bool, dict]:
             st.sidebar.error(f"Could not read assumptions: {exc}")
 
     ticker = st.sidebar.text_input("Ticker", value=str(_default(uploaded_defaults, "ticker", "DEMO"))).upper().strip()
+    peers_default = uploaded_defaults.get("peer_tickers") or []
+    peers = st.sidebar.text_input(
+        "Comparable Companies (optional override)",
+        value=", ".join(peers_default),
+        placeholder="Example: TSLA, GM, F",
+        help="Enter comma-separated ticker symbols. When blank, Yahoo Finance selects the comparables automatically.",
+    )
+    st.sidebar.caption("Supplied comparables are used as entered and equal-weighted; leave blank for automatic Yahoo Finance selection.")
     valuation_default = pd.to_datetime(_default(uploaded_defaults, "valuation_date", date.today())).date()
     valuation_date = st.sidebar.date_input("Valuation Date", value=valuation_default)
     forecast_years = st.sidebar.slider("Explicit Forecast Period", 5, 15, int(_default(uploaded_defaults, "forecast_years", 10)))
@@ -143,14 +151,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         risk_free = None if auto_risk_free else st.number_input("Risk-free Rate", 0.0, 0.20, float(_default(uploaded_defaults, "risk_free_rate", 0.0445)), 0.0025, format="%.4f")
         market_premium = st.number_input("Market Risk Premium", 0.0, 0.20, float(_default(uploaded_defaults, "market_risk_premium", 0.0418)), 0.0025, format="%.4f")
         debt_beta = st.number_input("Debt Beta", 0.0, 1.0, 0.15, 0.05)
-        peers_default = uploaded_defaults.get("peer_tickers") or []
-        peers = st.text_input(
-            "Comparable Companies (optional override)",
-            value=", ".join(peers_default),
-            placeholder="Example: TSLA, GM, F",
-            help="Enter comma-separated ticker symbols. When blank, Yahoo Finance selects the comparables automatically.",
-        )
-        st.caption("A supplied peer set is used exactly as entered and equal-weighted. When blank, Yahoo Finance People Also Watch selects peers and recommendation scores determine the weights. The resulting adjusted asset beta is used in TOCC.")
+        st.caption("The adjusted asset beta from the selected peer set is used in TOCC.")
 
     with st.sidebar.expander("Financing and APV"):
         uploaded_policy = uploaded_defaults.get("debt_policy", "scheduled_amortization")
