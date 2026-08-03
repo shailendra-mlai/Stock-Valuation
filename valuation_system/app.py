@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     apply_scenario_overrides(assumptions, probability_specs=args.scenario_probability)
     assumptions.validate()
     company = load_company_data(args.ticker, args.data_file, args.live, args.sec_user_agent)
-    attach_yahoo_comparables(company, assumptions.debt_beta)
+    attach_yahoo_comparables(company, assumptions.debt_beta, assumptions.peer_tickers)
     peer_beta = selected_peer_beta(company.comparables)
     if peer_beta is not None:
         assumptions.selected_asset_beta = peer_beta

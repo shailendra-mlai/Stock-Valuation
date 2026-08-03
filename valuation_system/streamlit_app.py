@@ -143,7 +143,14 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         risk_free = None if auto_risk_free else st.number_input("Risk-free Rate", 0.0, 0.20, float(_default(uploaded_defaults, "risk_free_rate", 0.0445)), 0.0025, format="%.4f")
         market_premium = st.number_input("Market Risk Premium", 0.0, 0.20, float(_default(uploaded_defaults, "market_risk_premium", 0.0418)), 0.0025, format="%.4f")
         debt_beta = st.number_input("Debt Beta", 0.0, 1.0, 0.15, 0.05)
-        st.caption("Comparable companies are selected automatically from Yahoo Finance People Also Watch. Their adjusted asset betas are weighted by Yahoo's recommendation scores and used in TOCC.")
+        peers_default = uploaded_defaults.get("peer_tickers") or []
+        peers = st.text_input(
+            "Comparable Companies (optional override)",
+            value=", ".join(peers_default),
+            placeholder="Example: TSLA, GM, F",
+            help="Enter comma-separated ticker symbols. When blank, Yahoo Finance selects the comparables automatically.",
+        )
+        st.caption("A supplied peer set is used exactly as entered and equal-weighted. When blank, Yahoo Finance People Also Watch selects peers and recommendation scores determine the weights. The resulting adjusted asset beta is used in TOCC.")
 
     with st.sidebar.expander("Financing and APV"):
         uploaded_policy = uploaded_defaults.get("debt_policy", "scheduled_amortization")
@@ -180,7 +187,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
     return run_clicked, {
         "ticker": ticker, "valuation_date": valuation_date, "forecast_years": forecast_years,
         "competitive_advantage_years": competitive_years, "currency": currency,
-        "peer_tickers": None, "revenue_growth_start": revenue_growth,
+        "peer_tickers": peers, "revenue_growth_start": revenue_growth,
         "terminal_growth_rate": terminal_growth, "terminal_ronic": terminal_ronic,
         "enforce_terminal_ronic_to_tocc": enforce_terminal,
         "ebit_margin_terminal": terminal_margin, "tax_rate": tax_rate,
@@ -361,11 +368,11 @@ def _render_tocc(result) -> None:
     c2.metric("Market Risk Premium", format_percentage(a["market_risk_premium"]))
     c3.metric("Selected Asset Beta", f"{a['selected_asset_beta']:.2f}x")
     c4.metric("Unlevered TOCC", format_percentage(s["tocc"]))
-    peers = pd.DataFrame(result.tocc_peers).rename(columns={"peer": "Peer", "company_name": "Company", "recommendation_score": "Yahoo Score", "equity_beta": "Equity Beta", "debt_beta": "Debt Beta", "debt": "Debt", "equity": "Market Equity", "raw_asset_beta": "Raw Asset Beta", "adjusted_asset_beta": "Adjusted Asset Beta", "weight": "Selected Weight"})
+    peers = pd.DataFrame(result.tocc_peers).rename(columns={"peer": "Peer", "company_name": "Company", "selection_method": "Selection", "recommendation_score": "Yahoo Score", "equity_beta": "Equity Beta", "debt_beta": "Debt Beta", "debt": "Debt", "equity": "Market Equity", "raw_asset_beta": "Raw Asset Beta", "adjusted_asset_beta": "Adjusted Asset Beta", "weight": "Selected Weight"})
     if peers.empty:
         st.warning("Yahoo peer statistics were unavailable. The selected asset beta is the disclosed sector-beta fallback.")
     else:
-        visible = ["Peer", "Company", "currency", "Yahoo Score", "Equity Beta", "Debt Beta", "Debt", "Market Equity", "Raw Asset Beta", "Adjusted Asset Beta", "Selected Weight", "source"]
+        visible = ["Peer", "Company", "Selection", "currency", "Yahoo Score", "Equity Beta", "Debt Beta", "Debt", "Market Equity", "Raw Asset Beta", "Adjusted Asset Beta", "Selected Weight", "source"]
         st.dataframe(_format_frame(peers[visible], ["Selected Weight"], ["Debt", "Market Equity"]), use_container_width=True, hide_index=True)
 
 
