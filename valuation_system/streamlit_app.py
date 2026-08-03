@@ -457,7 +457,7 @@ def main() -> None:
     """, unsafe_allow_html=True)
     st.title("Public Company Valuation")
     st.subheader("Assumption-Free Corporate Valuation Framework")
-    st.write("Analyze historical performance, forecast future free cash flow, estimate the True Opportunity Cost of Capital, calculate continuing value, and complete an Adjusted Present Value valuation.")
+    st.write("Analyze historical performance, forecast future free cash flow, estimate TOCC (The Opportunity Cost of Capital), calculate continuing value, and complete an Adjusted Present Value valuation.")
 
     run_clicked, values = _sidebar_inputs()
     if run_clicked:
