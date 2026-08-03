@@ -11,6 +11,7 @@ overperformance:
 tocc:
   risk_free_rate: null
   market_risk_premium: 0.045
+  peer_tickers: []  # Leave blank for automatic selection, or enter [TSLA, GM, F]
 tax:
   normalized_operating_tax_rate: 0.21
   cash_tax_rate: 0.17
