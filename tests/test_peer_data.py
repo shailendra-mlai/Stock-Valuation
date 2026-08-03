@@ -45,6 +45,22 @@ def test_peer_statistics_drive_weighted_adjusted_asset_beta():
     assert [row["ebit_margin"] for row in rows] == pytest.approx([0.20, 0.10])
 
 
+def test_user_defined_comparables_override_yahoo_selection():
+    info = {
+        symbol: {"quoteType": "EQUITY", "shortName": symbol, "beta": 1.0,
+                 "marketCap": 100_000_000, "totalDebt": 10_000_000}
+        for symbol in ["AAA", "BBB"]
+    }
+    rows = load_yahoo_peer_data(
+        "TEST", comparable_tickers=["BBB", "AAA"],
+        request_get=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("automatic selection should not run")),
+        info_loader=info.__getitem__, metric_loader=lambda _symbol: {},
+    )
+    assert [row["peer"] for row in rows] == ["BBB", "AAA"]
+    assert [row["weight"] for row in rows] == pytest.approx([0.5, 0.5])
+    assert all(row["selection_method"] == "User-defined comparable" for row in rows)
+
+
 def test_kevin_lecture_roic_tree_metrics_from_yahoo_statements(monkeypatch):
     current, prior = pd.Timestamp("2025-12-31"), pd.Timestamp("2024-12-31")
     income = pd.DataFrame({
