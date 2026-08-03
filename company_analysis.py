@@ -79,7 +79,7 @@ def main() -> int:
     if args.annual_sbc_dilution_rate is not None:
         assumptions.annual_sbc_dilution_rate = args.annual_sbc_dilution_rate
     apply_scenario_overrides(assumptions, probability_specs=args.scenario_probability)
-    attach_yahoo_comparables(company, assumptions.debt_beta)
+    attach_yahoo_comparables(company, assumptions.debt_beta, assumptions.peer_tickers)
     peer_beta = selected_peer_beta(company.comparables)
     if peer_beta is not None:
         assumptions.selected_asset_beta = peer_beta
