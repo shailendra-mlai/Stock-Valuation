@@ -14,7 +14,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The Excel exporter uses the Codex bundled `@oai/artifact-tool` runtime. In this workspace, set:
+The local high-fidelity Excel exporter can use the Codex bundled `@oai/artifact-tool` runtime. In this workspace, set:
 
 ```bash
 export VALUATION_NODE="$(command -v node)"
@@ -78,7 +78,7 @@ SEC_USER_AGENT = "Stock-Valuation your-email@example.com"
 
 The SEC does not require an API key, but it requires automated requests to declare an identifying user agent with a contact email. Set `SEC_USER_AGENT` in Community Cloud secrets using an address you authorize for SEC requests. The application stays below the SEC's published 10-request-per-second limit and uses the official `data.sec.gov/api/xbrl/companyfacts/` endpoint.
 
-On hosts without the bundled Node workbook runtime, the web adapter creates a simplified cloud-safe Excel workbook from the engine’s structured results. The full 25-tab workbook remains available when the configured Node exporter is present.
+The **Download Excel** button works on Streamlit Community Cloud without the bundled Node runtime. Its cloud-native exporter creates a 25-tab, formula-driven workbook patterned after the course reference model: valuation summary, historical statements, ROIC decomposition, comparables, forecast builds, DCF/APV, tax shields, financing and liquidity, editable scenario probabilities, model checks, charts, and sources. Company-specific reference data are not embedded in the repository; every workbook is populated from the selected ticker's valuation result.
 
 ## Two standalone analysis scripts
 
