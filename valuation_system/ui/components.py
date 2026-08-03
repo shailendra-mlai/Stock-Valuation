@@ -18,6 +18,7 @@ from valuation_system.data.company_data import load_company_data
 from valuation_system.data.peer_data import attach_yahoo_comparables, load_yahoo_peer_data, selected_peer_beta
 from valuation_system.data.sp500_batch import MARKET_RISK_PREMIUM, RISK_FREE_RATE, SECTOR_BETA
 from valuation_system.models.assumptions import ScenarioAssumption, ValuationAssumptions
+from valuation_system.reporting.cloud_excel import export_cloud_excel
 from valuation_system.reporting.excel_export import export_excel
 from valuation_system.reporting.report_export import export_report
 from valuation_system.ui.formatting import (
@@ -244,43 +245,8 @@ def _write_source_csv(result: Any, path: Path) -> Path:
 
 
 def _fallback_excel(result: Any, path: Path) -> Path:
-    """Cloud-safe workbook export when the richer Node builder is unavailable."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill
-
-    workbook = Workbook()
-    workbook.remove(workbook.active)
-
-    def excel_value(value: Any) -> Any:
-        if value is None or isinstance(value, (str, int, float, bool, datetime)):
-            return value
-        return json.dumps(value, default=str, sort_keys=True)
-
-    datasets = {
-        "Summary": [{"Metric": key, "Value": value} for key, value in result.summary.items()],
-        "Historical": result.historical, "Forecast": result.forecast,
-        "Over-Performance": result.overperformance, "TOCC Peers": result.tocc_peers,
-        "Tax Shield": result.tax_shield, "Scenarios": result.scenarios,
-        "Model Checks": [asdict(row) for row in result.checks], "Sources": result.provenance,
-    }
-    for name, rows in datasets.items():
-        sheet = workbook.create_sheet(name[:31])
-        if not rows:
-            sheet.append(["No data"])
-            continue
-        headers = list(rows[0])
-        sheet.append(headers)
-        for row in rows:
-            sheet.append([excel_value(row.get(header)) for header in headers])
-        for cell in sheet[1]:
-            cell.fill = PatternFill("solid", fgColor="1F4E78")
-            cell.font = Font(color="FFFFFF", bold=True)
-        sheet.freeze_panes = "A2"
-        for column in sheet.columns:
-            width = min(42, max(12, max(len(str(cell.value or "")) for cell in column) + 2))
-            sheet.column_dimensions[column[0].column_letter].width = width
-    workbook.save(path)
-    return path
+    """Build the formula-driven reference-style workbook on Community Cloud."""
+    return export_cloud_excel(result, path)
 
 
 def run_company_valuation(
@@ -359,7 +325,7 @@ def render_overall_status(status: str) -> None:
 
 def render_downloads(paths: dict[str, Path | str | None], ticker: str, *, key_prefix: str = "download") -> None:
     specs = [
-        ("excel", "Download Excel Valuation", f"{ticker}_Valuation.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        ("excel", "Download Excel", f"{ticker}_Valuation.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         ("report", "Download Valuation Report", f"{ticker}_Valuation_Report.md", "text/markdown"),
         ("assumptions", "Download Assumptions", f"{ticker}_Assumptions.yaml", "application/x-yaml"),
         ("source", "Download Source Data", f"{ticker}_Source_Data.csv", "text/csv"),
