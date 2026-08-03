@@ -116,13 +116,23 @@ def load_yahoo_peer_data(
     ticker: str,
     debt_beta: float = 0.15,
     limit: int = 4,
+    comparable_tickers: list[str] | None = None,
     *,
     request_get: Callable[..., Any] = requests.get,
     info_loader: Callable[[str], dict[str, Any]] = _default_info_loader,
     metric_loader: Callable[[str], dict[str, Any]] = load_yahoo_roic_metrics,
 ) -> list[dict[str, Any]]:
     """Build a sourced peer-beta table from Yahoo related symbols and quote statistics."""
-    recommendations = discover_yahoo_comparables(ticker, limit, request_get=request_get)
+    if comparable_tickers:
+        recommendations = [
+            {"peer": symbol.upper().strip(), "recommendation_score": 1.0}
+            for symbol in comparable_tickers
+            if symbol.upper().strip() != ticker.upper().strip()
+        ]
+        selection_method = "User-defined comparable"
+    else:
+        recommendations = discover_yahoo_comparables(ticker, limit, request_get=request_get)
+        selection_method = "Yahoo Finance People Also Watch"
     rows: list[dict[str, Any]] = []
     for item in recommendations:
         try:
@@ -156,7 +166,8 @@ def load_yahoo_peer_data(
             "adjusted_asset_beta": 0.67 * raw_beta + 0.33,
             "recommendation_score": item["recommendation_score"],
             "currency": quote_currency or financial_currency or "Unknown",
-            "source": "Yahoo Finance People Also Watch, quote statistics, and annual statements",
+            "selection_method": selection_method,
+            "source": f"{selection_method}; Yahoo Finance quote statistics and annual statements",
             **roic_metrics,
         })
     score_total = sum(max(0.0, row["recommendation_score"]) for row in rows)
@@ -181,12 +192,16 @@ def selected_peer_beta(rows: list[dict[str, Any]]) -> float | None:
 def attach_yahoo_comparables(
     company: CompanyData,
     debt_beta: float = 0.15,
+    comparable_tickers: list[str] | None = None,
     *,
     loader: Callable[..., list[dict[str, Any]]] = load_yahoo_peer_data,
 ) -> list[dict[str, Any]]:
     """Attach automatic comparable data without making provider failure fatal."""
     try:
-        rows = loader(company.ticker, debt_beta=debt_beta)
+        rows = loader(
+            company.ticker, debt_beta=debt_beta,
+            comparable_tickers=comparable_tickers or None,
+        )
     except Exception:
         rows = []
     company.comparables = rows
@@ -195,12 +210,17 @@ def attach_yahoo_comparables(
         value=[row["peer"] for row in rows],
         source=YAHOO_QUOTE_URL.format(ticker=company.ticker),
         source_date=date.today().isoformat(),
-        retrieval_method="Yahoo Finance People Also Watch plus peer quote statistics and annual statements",
+        retrieval_method=(
+            "User-defined comparables plus Yahoo Finance quote statistics and annual statements"
+            if comparable_tickers else
+            "Yahoo Finance People Also Watch plus peer quote statistics and annual statements"
+        ),
         original_unit="mixed market data",
         normalized_unit="USD millions and beta",
         confidence="medium" if rows else "low",
         notes=(
-            "Recommendation-score-weighted adjusted asset beta is used in TOCC."
+            ("Equal-weighted adjusted asset beta from the user-defined peer set is used in TOCC."
+             if comparable_tickers else "Recommendation-score-weighted adjusted asset beta is used in TOCC.")
             if rows else "Yahoo peer data unavailable; the disclosed sector-beta fallback is used."
         ),
     ))
