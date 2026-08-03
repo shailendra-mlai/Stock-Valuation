@@ -183,7 +183,7 @@ class ValuationAssumptions:
             "enforce_terminal_ronic_to_tocc": terminal.get("enforce_ronic_equals_tocc", True),
             "risk_free_rate": tocc.get("risk_free_rate") or cls.risk_free_rate,
             "market_risk_premium": tocc.get("market_risk_premium", cls.market_risk_premium),
-            "peer_tickers": [],
+            "peer_tickers": tocc.get("peer_tickers", []),
             "tax_rate": tax.get("normalized_operating_tax_rate", cls.tax_rate),
             "cash_tax_rate": tax.get("cash_tax_rate", cls.cash_tax_rate),
             "interest_limit_percentage": tax.get("interest_limit_percentage", cls.interest_limit_percentage),
