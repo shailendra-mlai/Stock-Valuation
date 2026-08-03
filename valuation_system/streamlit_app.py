@@ -477,7 +477,7 @@ def main() -> None:
             progress.empty()
             message = str(exc)
             if "No offline sample data" in message or "period" in message.lower():
-                message = "Five-year historical operating data could not be retrieved from SEC Company Facts. Upload a normalized historical-data file or try again later."
+                message = "Historical operating data could not be retrieved from SEC Company Facts or the Yahoo Finance annual-statement fallback. Upload a normalized historical-data file or try again later."
             st.error(f"Valuation could not be completed: {message}")
 
     result = st.session_state.valuation_results
