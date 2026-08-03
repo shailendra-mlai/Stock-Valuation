@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 
 from valuation_system.data import company_data
 
@@ -79,3 +80,49 @@ def test_sec_requires_declared_contact_before_request(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="contact email"):
         company_data._sec_get_json("https://data.sec.gov/example.json", attempts=1, user_agent="Stock-Valuation")
+
+
+def test_yahoo_foreign_issuer_fallback_normalizes_statements_and_fx():
+    columns = [pd.Timestamp(f"{year}-12-31") for year in (2025, 2024, 2023, 2022)]
+    income = pd.DataFrame({column: [100_000_000, 20_000_000, 60_000_000, 5_000_000, 10_000_000, 4_000_000, 100_000_000] for column in columns}, index=[
+        "TotalRevenue", "OperatingIncome", "CostOfRevenue", "SellingGeneralAndAdministration",
+        "ResearchAndDevelopment", "TaxProvision", "DilutedAverageShares",
+    ], dtype=float)
+    balance = pd.DataFrame({column: [10_000_000, 2_000_000, 8_000_000, 5_000_000, 3_000_000, 1_000_000, 30_000_000, 20_000_000, 5_000_000, 1_000_000, 2_000_000, 4_000_000, 25_000_000, 1_000_000, 50_000_000] for column in columns}, index=[
+        "CashAndCashEquivalents", "OtherShortTermInvestments", "Receivables", "Inventory",
+        "OtherCurrentAssets", "AccountsPayable", "PayablesAndAccruedExpenses", "CurrentLiabilities",
+        "CurrentDebt", "CurrentDeferredRevenue", "NonCurrentDeferredRevenue", "NetPPE", "TotalDebt",
+        "CapitalLeaseObligations", "StockholdersEquity",
+    ], dtype=float)
+    cash_flow = pd.DataFrame({column: [3_000_000, -6_000_000, 500_000] for column in columns}, index=[
+        "DepreciationAmortizationDepletion", "CapitalExpenditure", "StockBasedCompensation",
+    ], dtype=float)
+    income.loc[:, columns[-1]] = float("nan")
+    balance.loc[:, columns[-1]] = float("nan")
+    cash_flow.loc[:, columns[-1]] = float("nan")
+
+    class Security:
+        def get_income_stmt(self, **_kwargs): return income
+        def get_balance_sheet(self, **_kwargs): return balance
+        def get_cash_flow(self, **_kwargs): return cash_flow
+        def get_info(self): return {"shortName": "Test Foreign Co", "sector": "Industrials", "financialCurrency": "EUR", "currency": "USD", "currentPrice": 10.0, "marketCap": 1_000_000_000, "sharesOutstanding": 100_000_000}
+
+    class Fx:
+        fast_info = {"last_price": 1.10}
+
+    company = company_data.load_yahoo_company_data(
+        "TEST", ticker_factory=lambda symbol: Fx() if symbol == "EURUSD=X" else Security(),
+    )
+    assert [row.year for row in company.historical] == [2023, 2024, 2025]
+    assert company.latest.revenue == pytest.approx(110.0)
+    assert company.latest.capex == pytest.approx(6.6)
+    assert company.currency == "USD"
+    assert company.market_cap == pytest.approx(1_000.0)
+    assert company.provenance[1].value == pytest.approx(1.10)
+
+
+def test_live_loader_uses_yahoo_before_offline_sample(monkeypatch):
+    expected = company_data._load_sample("DEMO", company_data.DEFAULT_SAMPLE_DATA)
+    monkeypatch.setattr(company_data, "load_sec_company_data", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("insufficient SEC periods")))
+    monkeypatch.setattr(company_data, "load_yahoo_company_data", lambda _ticker: expected)
+    assert company_data.load_company_data("ANY", live=True) is expected
