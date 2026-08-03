@@ -4,6 +4,7 @@ import csv
 from datetime import date, datetime
 from functools import lru_cache
 import logging
+import math
 import os
 from pathlib import Path
 import time
@@ -416,6 +417,131 @@ def load_nasdaq_company_data(ticker: str) -> CompanyData:
     )
 
 
+def _yahoo_statement_value(frame: Any, label: str, column: Any, default: float = 0.0) -> float:
+    try:
+        value = float(frame.loc[label, column])
+        return value if math.isfinite(value) else default
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def load_yahoo_company_data(ticker: str, ticker_factory: Any | None = None) -> CompanyData:
+    """Normalize five Yahoo annual statements when SEC Company Facts is insufficient."""
+    if ticker_factory is None:
+        import yfinance as yf
+        ticker_factory = yf.Ticker
+    symbol = ticker.upper().strip()
+    security = ticker_factory(symbol)
+    income = security.get_income_stmt(freq="yearly")
+    balance = security.get_balance_sheet(freq="yearly")
+    cash_flow = security.get_cash_flow(freq="yearly")
+    info = security.get_info() or {}
+    candidate_columns = sorted(
+        set(income.columns) & set(balance.columns) & set(cash_flow.columns), reverse=True,
+    )
+    common_columns = [
+        column for column in candidate_columns
+        if _yahoo_statement_value(income, "TotalRevenue", column) > 0
+        and math.isfinite(_yahoo_statement_value(income, "OperatingIncome", column, float("nan")))
+    ][:5]
+    if len(common_columns) < 3:
+        raise RuntimeError("Yahoo Finance returned fewer than three comparable annual periods")
+
+    statement_currency = str(info.get("financialCurrency") or info.get("currency") or "USD").upper()
+    quote_currency = str(info.get("currency") or statement_currency).upper()
+    fx_rate = 1.0
+    fx_source = "No conversion required"
+    if statement_currency != quote_currency:
+        fx_symbol = f"{statement_currency}{quote_currency}=X"
+        fx_security = ticker_factory(fx_symbol)
+        fast_info = fx_security.fast_info
+        fx_rate = float(fast_info["last_price"] if isinstance(fast_info, dict) else fast_info.last_price)
+        if not math.isfinite(fx_rate) or fx_rate <= 0:
+            raise RuntimeError(f"Yahoo FX rate unavailable for {statement_currency}/{quote_currency}")
+        fx_source = f"Yahoo Finance {fx_symbol} current rate {fx_rate:.6f}"
+
+    def money(frame: Any, label: str, column: Any, default: float = 0.0) -> float:
+        return _yahoo_statement_value(frame, label, column, default) / 1_000_000 * fx_rate
+
+    historical: list[HistoricalYear] = []
+    for column in sorted(common_columns):
+        accounts_payable = money(balance, "AccountsPayable", column)
+        payables_accrued = money(balance, "PayablesAndAccruedExpenses", column)
+        current_liabilities = money(balance, "CurrentLiabilities", column)
+        current_debt = money(balance, "CurrentDebt", column)
+        current_deferred = money(balance, "CurrentDeferredRevenue", column)
+        noncurrent_deferred = money(balance, "NonCurrentDeferredRevenue", column)
+        cash = money(balance, "CashAndCashEquivalents", column)
+        short_investments = money(balance, "OtherShortTermInvestments", column)
+        historical.append(HistoricalYear(
+            year=int(column.year),
+            revenue=money(income, "TotalRevenue", column),
+            cogs=abs(money(income, "CostOfRevenue", column)),
+            sga=abs(money(income, "SellingGeneralAndAdministration", column)),
+            rd=abs(money(income, "ResearchAndDevelopment", column)),
+            da=abs(money(cash_flow, "DepreciationAmortizationDepletion", column)) or abs(money(income, "ReconciledDepreciation", column)),
+            ebit=money(income, "OperatingIncome", column) or money(income, "EBIT", column),
+            taxes=money(income, "TaxProvision", column),
+            cash=cash,
+            marketable_securities=short_investments,
+            receivables=money(balance, "Receivables", column),
+            inventory=money(balance, "Inventory", column),
+            other_current_operating_assets=money(balance, "OtherCurrentAssets", column),
+            net_ppe=money(balance, "NetPPE", column),
+            operating_lease_assets=0.0,
+            other_operating_assets=money(balance, "GoodwillAndOtherIntangibleAssets", column),
+            accounts_payable=accounts_payable,
+            accrued_operating_liabilities=max(0.0, payables_accrued - accounts_payable),
+            deferred_revenue=current_deferred,
+            other_operating_liabilities=max(
+                0.0, current_liabilities - current_debt - payables_accrued - current_deferred,
+            ) + noncurrent_deferred,
+            debt=money(balance, "TotalDebt", column),
+            lease_liabilities=money(balance, "CapitalLeaseObligations", column),
+            equity=money(balance, "StockholdersEquity", column),
+            capex=abs(money(cash_flow, "CapitalExpenditure", column)),
+            stock_comp=abs(money(cash_flow, "StockBasedCompensation", column)),
+        ))
+    latest_column = common_columns[0]
+    basic_shares = float(info.get("sharesOutstanding") or _yahoo_statement_value(balance, "OrdinarySharesNumber", latest_column)) / 1_000_000
+    diluted_shares = _yahoo_statement_value(income, "DilutedAverageShares", latest_column) / 1_000_000 or basic_shares
+    share_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    share_price = float(share_price) if share_price is not None else None
+    market_cap = float(info["marketCap"]) / 1_000_000 if info.get("marketCap") else (
+        share_price * basic_shares if share_price is not None else None
+    )
+    if basic_shares <= 0 or share_price is None:
+        raise RuntimeError("Yahoo Finance share price or share count is unavailable")
+    source_url = f"https://finance.yahoo.com/quote/{symbol}/financials/"
+    provenance = [
+        ProvenanceRecord(
+            variable="Historical financial statements", value=f"{len(historical)} fiscal years",
+            source=source_url, source_date=str(max(row.year for row in historical)),
+            retrieval_method="Yahoo Finance annual statements fallback",
+            confidence="medium",
+            notes="Used after SEC Company Facts did not provide sufficient comparable annual periods.",
+        ),
+        ProvenanceRecord(
+            variable="Statement currency conversion", value=fx_rate,
+            source=fx_source, source_date=str(date.today()), retrieval_method="Yahoo Finance FX quote",
+            original_unit=statement_currency, normalized_unit=quote_currency,
+            confidence="medium", notes="All statement amounts were converted to the security's quote currency.",
+        ),
+        ProvenanceRecord(
+            variable="Market price and capitalization", value=market_cap,
+            source=f"https://finance.yahoo.com/quote/{symbol}/", source_date=str(date.today()),
+            retrieval_method="Yahoo Finance quote statistics", original_unit=f"{quote_currency}/share",
+            normalized_unit=f"{quote_currency}/share and {quote_currency} millions", confidence="medium",
+        ),
+    ]
+    return CompanyData(
+        ticker=symbol, name=info.get("shortName") or info.get("longName") or symbol,
+        sector=info.get("sector") or "Unknown", currency=quote_currency,
+        historical=historical, share_price=share_price, diluted_shares=diluted_shares,
+        basic_shares=basic_shares, market_cap=market_cap, provenance=provenance,
+    )
+
+
 def load_company_data(
     ticker: str,
     data_file: str | Path | None = None,
@@ -429,4 +555,8 @@ def load_company_data(
             return load_sec_company_data(ticker, sec_user_agent)
         except Exception as exc:
             logger.warning("SEC retrieval unavailable or unreliable: %s", exc)
+        try:
+            return load_yahoo_company_data(ticker)
+        except Exception as exc:
+            logger.warning("Yahoo annual-statement fallback unavailable: %s", exc)
     return _load_sample(ticker, DEFAULT_SAMPLE_DATA)
