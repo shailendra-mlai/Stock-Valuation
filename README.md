@@ -59,7 +59,7 @@ streamlit run streamlit_app.py
 
 The dashboard accepts a ticker, forecast and TOCC assumptions, financing inputs, fixed valuation scenarios with editable probabilities, and optional assumptions or historical-data uploads. Probabilities must total 100%. Comparable companies are selected automatically from Yahoo Finance. The app calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
 
-Historical analysis uses the latest five comparable fiscal years. An uploaded CSV or Excel file takes precedence. When no file is uploaded, the application resolves the ticker to a CIK and downloads standardized annual facts from the SEC Company Facts API. Market price and market capitalization are retrieved separately because SEC filings do not provide a current share price.
+Historical analysis uses up to the latest five complete comparable fiscal years. An uploaded CSV or Excel file takes precedence. When no file is uploaded, the application first resolves the ticker to a CIK and downloads standardized annual facts from the SEC Company Facts API. If SEC Company Facts is insufficient—common for some foreign private issuers—the app falls back to complete Yahoo Finance annual statements. Foreign-currency statements are converted to the security's quote currency using a disclosed Yahoo FX rate. Empty provider placeholder years are excluded and the model warns when fewer than five complete periods are available. Market price and market capitalization are retrieved separately because SEC filings do not provide a current share price.
 
 ### Streamlit Community Cloud deployment
 
