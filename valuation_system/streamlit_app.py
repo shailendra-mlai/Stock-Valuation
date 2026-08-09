@@ -145,7 +145,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
     currency_default = str(_default(uploaded_defaults, "currency", "USD"))
     currency = st.sidebar.selectbox("Reporting Currency", currencies, index=currencies.index(currency_default) if currency_default in currencies else 0)
 
-    with st.sidebar.expander("Forecast Assumptions", expanded=True):
+    with st.sidebar.expander("Forecast Parameters", expanded=True):
         estimate_growth = st.checkbox("Estimate base revenue growth automatically", value=uploaded_defaults.get("revenue_growth_start") is None)
         revenue_growth = None if estimate_growth else st.number_input("Base Revenue Growth", -0.50, 1.00, float(_default(uploaded_defaults, "revenue_growth_start", 0.10)), 0.01, format="%.3f")
         terminal_growth = st.number_input("Terminal Growth Rate", -0.05, 0.10, float(_default(uploaded_defaults, "terminal_growth_rate", 0.025)), 0.005, format="%.3f")
@@ -155,7 +155,7 @@ def _sidebar_inputs() -> tuple[bool, dict]:
         terminal_margin = None if estimate_margin else st.number_input("Normalized EBIT Margin", -0.50, 0.60, float(_default(uploaded_defaults, "ebit_margin_terminal", 0.10)), 0.01, format="%.3f")
         tax_rate = st.number_input("Normalized Operating Tax Rate", 0.0, 0.50, float(_default(uploaded_defaults, "tax_rate", 0.21)), 0.01, format="%.3f")
 
-    with st.sidebar.expander("TOCC Assumptions"):
+    with st.sidebar.expander("TOCC Parameters"):
         auto_risk_free = st.checkbox("Estimate risk-free rate automatically", value=uploaded_defaults.get("risk_free_rate") is None)
         risk_free = None if auto_risk_free else st.number_input("Risk-free Rate", 0.0, 0.20, float(_default(uploaded_defaults, "risk_free_rate", 0.0445)), 0.0025, format="%.4f")
         market_premium = st.number_input("Market Risk Premium", 0.0, 0.20, float(_default(uploaded_defaults, "market_risk_premium", 0.0418)), 0.0025, format="%.4f")
