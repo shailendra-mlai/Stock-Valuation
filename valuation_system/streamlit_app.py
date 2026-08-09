@@ -109,10 +109,10 @@ def _scenario_editor(uploaded_defaults: dict) -> dict[str, dict]:
 
 def _sidebar_inputs() -> tuple[bool, dict]:
     st.sidebar.header("Valuation Inputs")
-    uploaded_assumptions = st.sidebar.file_uploader("Upload Assumptions File", type=["yaml", "yml", "json"])
+    uploaded_assumptions = st.sidebar.file_uploader("Upload Parameter File", type=["yaml", "yml", "json"])
     example_assumptions = Path(__file__).resolve().parents[1] / "assumptions_example.yaml"
     st.sidebar.download_button(
-        "Download Example Assumptions File",
+        "Download Example Parameter File",
         data=example_assumptions.read_bytes(),
         file_name="aapl_assumptions_example.yaml",
         mime="application/x-yaml",
