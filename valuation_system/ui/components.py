@@ -327,7 +327,7 @@ def render_downloads(paths: dict[str, Path | str | None], ticker: str, *, key_pr
     specs = [
         ("excel", "Download Excel", f"{ticker}_Valuation.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         ("report", "Download Valuation Report", f"{ticker}_Valuation_Report.md", "text/markdown"),
-        ("assumptions", "Download Assumptions", f"{ticker}_Assumptions.yaml", "application/x-yaml"),
+        ("assumptions", "Download Parameters", f"{ticker}_Assumptions.yaml", "application/x-yaml"),
         ("source", "Download Source Data", f"{ticker}_Source_Data.csv", "text/csv"),
     ]
     columns = st.columns(4)
