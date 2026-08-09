@@ -1,7 +1,9 @@
-ticker: DEMO
-valuation_date: 2026-07-26
+ticker: AAPL
+valuation_date: null  # Uses today's date when uploaded
 forecast_years: 10
 currency: USD
+revenue_growth_start: null  # Estimated automatically from historical results
+ebit_margin_terminal: null  # Estimated automatically from historical results
 terminal:
   growth_rate: 0.025
   ronic: null
@@ -10,15 +12,15 @@ overperformance:
   years: 10
 tocc:
   risk_free_rate: null
-  market_risk_premium: 0.045
-  peer_tickers: []  # Leave blank for automatic selection, or enter [TSLA, GM, F]
+  market_risk_premium: 0.0418
+  peer_tickers: []  # Leave blank for automatic selection, or enter [MSFT, GOOGL, AMZN, META]
 tax:
   normalized_operating_tax_rate: 0.21
   cash_tax_rate: 0.17
   interest_limit_percentage: 0.30
   initial_operating_nol: 0
 liquidity:
-  minimum_cash: 500
+  minimum_cash: 10000
 dilution:
   annual_sbc_rate: 0.00
 debt_policy:
