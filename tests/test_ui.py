@@ -9,8 +9,8 @@ from valuation_system.models.assumptions import (
 )
 from valuation_system.ui.components import (
     build_valuation_config, clean_ticker, parse_optional_float,
-    parse_peer_tickers, run_company_valuation, validate_scenario_probabilities,
-    validate_terminal_growth,
+    flatten_uploaded_assumptions, parse_assumptions_upload, parse_peer_tickers,
+    run_company_valuation, validate_scenario_probabilities, validate_terminal_growth,
 )
 from valuation_system.ui.formatting import (
     format_currency, format_large_currency, format_percentage,
@@ -34,6 +34,16 @@ def test_blank_optional_input_handling():
     assert parse_optional_float("") is None
     assert parse_optional_float(None) is None
     assert parse_optional_float("0.125") == pytest.approx(0.125)
+
+
+def test_example_assumptions_file_is_valid():
+    content = Path("assumptions_example.yaml").read_bytes()
+    parsed = parse_assumptions_upload(content, "aapl_assumptions_example.yaml")
+    flattened = flatten_uploaded_assumptions(parsed)
+    assert flattened["ticker"] == "AAPL"
+    assert flattened["valuation_date"] is None
+    assert flattened["peer_tickers"] == []
+    assert [row["probability"] for row in parsed["scenarios"].values()] == [0.25] * 4
 
 
 def test_terminal_growth_validation():
