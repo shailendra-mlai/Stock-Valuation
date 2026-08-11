@@ -473,8 +473,7 @@ def main() -> None:
         "professional judgment and validation against primary filings and issuer disclosures."
     )
     st.caption(
-        "Independent project inspired by coursework. It is not affiliated with, sponsored by, or endorsed by "
-        "The Wharton School, the University of Pennsylvania, Professor Kevin Kaiser, or any other instructor."
+        "Independent project inspired by coursework."
     )
 
     run_clicked, values = _sidebar_inputs()
