@@ -59,7 +59,7 @@ def _statement_value(frame: Any, label: str, column: Any, default: float | None 
 
 
 def load_yahoo_roic_metrics(ticker: str) -> dict[str, float | None]:
-    """Calculate Kevin Kaiser-style ROIC-tree ratios from Yahoo annual statements."""
+    """Calculate course-framework ROIC-tree ratios from Yahoo annual statements."""
     import yfinance as yf
 
     company = yf.Ticker(ticker)

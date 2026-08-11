@@ -320,9 +320,9 @@ def _comparison_chart(frame: pd.DataFrame, metric: str, *, percentage: bool = Tr
 
 
 def _render_roic_comparables(result) -> None:
-    st.subheader("Kevin Kaiser ROIC Tree — Comparable-Company Diagnostic")
+    st.subheader("ROIC Tree — Comparable-Company Diagnostic")
     st.caption(
-        "Lecture structure: after-tax operating ROIC = pre-tax ROIC × (1 − cash tax rate); "
+        "Course-framework structure: after-tax operating ROIC = pre-tax ROIC × (1 − cash tax rate); "
         "pre-tax ROIC = normalized EBIT margin × capital turnover. Lower branches diagnose cost structure, "
         "working-capital intensity, and fixed-asset intensity."
     )
@@ -465,8 +465,17 @@ def main() -> None:
         </style>
     """, unsafe_allow_html=True)
     st.title("Public Company Valuation")
-    st.subheader("Assumption-Free Corporate Valuation Framework")
+    st.subheader("Structured Corporate Valuation Framework")
     st.write("Analyze historical performance, forecast future free cash flow, estimate TOCC (The Opportunity Cost of Capital), calculate continuing value, and complete an Adjusted Present Value valuation.")
+    st.warning(
+        "**Educational and experimental project — not financial or investment advice.** "
+        "Automated accounting mappings, comparable-company selection, and company-specific adjustments require "
+        "professional judgment and validation against primary filings and issuer disclosures."
+    )
+    st.caption(
+        "Independent project inspired by coursework. It is not affiliated with, sponsored by, or endorsed by "
+        "The Wharton School, the University of Pennsylvania, Professor Kevin Kaiser, or any other instructor."
+    )
 
     run_clicked, values = _sidebar_inputs()
     if run_clicked:

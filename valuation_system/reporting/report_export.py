@@ -33,6 +33,8 @@ def export_report(result: ValuationResult, output_path: str | Path) -> Path:
     check_notes = "\n".join(f"- {c.status}: {c.name}. {c.notes}" for c in failed) or "- All checks passed."
     text = f"""# {result.ticker} Intrinsic Valuation Report
 
+> **Educational and experimental analysis only.** This report is not financial or investment advice. Automated accounting mappings, comparable-company selection, and company-specific adjustments require professional judgment and validation against primary filings. This independent project is not affiliated with or endorsed by The Wharton School, the University of Pennsylvania, Professor Kevin Kaiser, or any other instructor.
+
 ## 1. Executive summary
 
 The APV framework produces an intrinsic value of **{_money(s['intrinsic_value_per_share'])} per share** and a probability-weighted value of **{_money(s['probability_weighted_value'])}**. The illustrative market-price comparison is {_pct(s['premium_discount'])}. Overall model status: **{s['overall_model_status']}**.

@@ -1,8 +1,12 @@
 # Public Company Valuation System
 
-This project implements a three-period, assumption-aware Adjusted Present Value (APV) system for nonfinancial public companies. It separates operating performance from financing, diagnoses ROIC drivers before forecasting, explicitly fades competitive advantage, locks terminal RONIC to unlevered TOCC, models NOL-constrained interest tax shields, tests liquidity, and completes a scenario-specific enterprise-to-equity bridge.
+## Structured Corporate Valuation Framework
 
-> **Disclaimer:** This project is based on Wharton course work and is provided solely for educational and analytical purposes. It is not financial advice, investment advice, or a recommendation to buy, sell, or trade any stock or other security. Users should conduct their own research and consult a qualified financial professional before making investment decisions.
+This independent, experimental project implements a three-period, assumption-aware Adjusted Present Value (APV) system for nonfinancial public companies. It separates operating performance from financing, diagnoses ROIC drivers before forecasting, explicitly fades competitive advantage, locks terminal RONIC to unlevered TOCC, models NOL-constrained interest tax shields, tests liquidity, and completes a scenario-specific enterprise-to-equity bridge.
+
+> **Educational-use and non-endorsement disclaimer:** This independent project is inspired by concepts studied in Wharton coursework. It is not affiliated with, sponsored by, or endorsed by The Wharton School, the University of Pennsylvania, Professor Kevin Kaiser, or any other instructor. It is provided solely for educational and experimental analysis; it is not financial advice, investment advice, or a recommendation to buy, sell, or trade any security.
+>
+> Automated accounting mappings, comparable-company selection, and company-specific adjustments can be incomplete or inappropriate for a particular issuer. They require professional judgment, validation against primary filings, and review of company-specific disclosures. Users should conduct their own research and consult a qualified financial professional before making investment decisions.
 
 ## Installation
 
@@ -57,7 +61,7 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-The dashboard accepts a ticker, forecast and TOCC assumptions, financing inputs, fixed valuation scenarios with editable probabilities, and optional assumptions or historical-data uploads. Probabilities must total 100%. Comparable companies are selected automatically from Yahoo Finance. The app calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
+The dashboard accepts a ticker, forecast and TOCC parameters, financing inputs, fixed valuation scenarios with editable probabilities, and optional parameter or historical-data uploads. Probabilities must total 100%. Comparable companies are selected automatically from Yahoo Finance. The app calls the existing `valuation_system.analysis.engine.run_valuation` engine through a thin adapter; valuation formulas are not duplicated in the UI.
 
 Historical analysis uses up to the latest five complete comparable fiscal years. An uploaded CSV or Excel file takes precedence. When no file is uploaded, the application first resolves the ticker to a CIK and downloads standardized annual facts from the SEC Company Facts API. If SEC Company Facts is insufficient—common for some foreign private issuers—the app falls back to complete Yahoo Finance annual statements. Foreign-currency statements are converted to the security's quote currency using a disclosed Yahoo FX rate. Empty provider placeholder years are excluded and the model warns when fewer than five complete periods are available. Market price and market capitalization are retrieved separately because SEC filings do not provide a current share price.
 
@@ -198,6 +202,7 @@ Blue font denotes user-editable inputs, black formulas, green cross-sheet links,
 
 ## Known limitations
 
+- Automated accounting mappings, automated comparable-company selection, and company-specific adjustments require professional judgment and validation against primary filings and issuer disclosures.
 - The included synthetic `DEMO` dataset and market price are illustrative and are not current investment data.
 - The S&P 500 mode is a standardized screening model. It applies the three-period structure and terminal RONIC discipline, but sector beta, margin convergence, capital-turnover convergence, and financing details must be replaced by issuer-specific evidence before investment use.
 - SEC XBRL tags vary materially by issuer. Production use requires issuer-specific mapping review rather than a universal zero-fill mapping.
